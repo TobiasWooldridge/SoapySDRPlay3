@@ -113,7 +113,9 @@ void SoapySDRPlay::rx_callback(short *xi, short *xq,
     }
 
     int spaceReqd = numSamples * elementsPerSample * shortsPerWord;
-    if ((stream->buffs[stream->tail].size() + spaceReqd) >= (bufferLength / chParams->ctrlParams.decimation.decimationFactor))
+    unsigned int decFactor = chParams->ctrlParams.decimation.decimationFactor;
+    if (decFactor == 0) decFactor = 1;  // Prevent division by zero
+    if ((stream->buffs[stream->tail].size() + spaceReqd) >= (bufferLength / decFactor))
     {
        // increment the tail pointer and buffer count
        stream->tail = (stream->tail + 1) % numBuffers;
