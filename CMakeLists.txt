@@ -88,7 +88,13 @@ SOAPY_SDR_MODULE_UTIL(
         SoapySDRPlay.hpp
         Registration.cpp
         sdrplay_api.cpp
-        Settings.cpp
+        DeviceControl.cpp
+        Identification.cpp
+        Antenna.cpp
+        Gain.cpp
+        Frequency.cpp
+        SampleRate.cpp
+        SettingsAPI.cpp
         Streaming.cpp
     LIBRARIES
         ${LIBSDRPLAY_LIBRARIES}
