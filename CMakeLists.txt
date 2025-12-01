@@ -1,7 +1,7 @@
 ########################################################################
 # Build Soapy SDR support module for SDRplay (API version 3)
 ########################################################################
-cmake_minimum_required(VERSION 2.8.12)
+cmake_minimum_required(VERSION 3.10)
 project(SoapySDRPlay CXX)
 
 find_package(SoapySDR "0.4.0" NO_MODULE REQUIRED)
@@ -26,11 +26,42 @@ include_directories(${LIBSDRPLAY_INCLUDE_DIRS})
 set(CMAKE_CXX_STANDARD 11)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-#enable c++11 features
-if(CMAKE_COMPILER_IS_GNUCXX)
-    #disable warnings for unused parameters
-    add_definitions(-Wno-unused-parameter)
-endif(CMAKE_COMPILER_IS_GNUCXX)
+# Compiler-specific settings
+if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+    # Disable warnings for unused parameters
+    add_compile_options(-Wno-unused-parameter)
+
+    # Optimization flags for Release builds
+    set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -O3")
+
+    # Enable fast floating-point optimizations (safe for SDR signal processing)
+    set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -ffast-math")
+
+    # Enable function sections for better dead code elimination
+    set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -ffunction-sections -fdata-sections")
+endif()
+
+# Optional: Enable Link-Time Optimization for Release builds
+option(ENABLE_LTO "Enable Link-Time Optimization (LTO)" OFF)
+if(ENABLE_LTO)
+    include(CheckIPOSupported)
+    check_ipo_supported(RESULT lto_supported OUTPUT lto_error)
+    if(lto_supported)
+        set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_RELEASE TRUE)
+        message(STATUS "LTO enabled for Release builds")
+    else()
+        message(WARNING "LTO not supported: ${lto_error}")
+    endif()
+endif()
+
+# Optional: Build for native CPU architecture (non-portable but faster)
+option(ENABLE_NATIVE_ARCH "Build for native CPU architecture (not portable)" OFF)
+if(ENABLE_NATIVE_ARCH)
+    if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+        add_compile_options(-march=native)
+        message(STATUS "Building for native CPU architecture")
+    endif()
+endif()
 
 # Configurable feature set
 SET (RF_GAIN_IN_MENU ON CACHE BOOL "Add Rf gain as a setting, additionally to the IFGR gain control")
