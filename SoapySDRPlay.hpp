@@ -396,7 +396,7 @@ public:
 
     public:
         ~sdrplay_api();
-        sdrplay_api(sdrplay_api const&)    = delete;
-        void operator=(sdrplay_api const&) = delete;
+        sdrplay_api(const sdrplay_api&) = delete;
+        sdrplay_api& operator=(const sdrplay_api&) = delete;
     };
 };
