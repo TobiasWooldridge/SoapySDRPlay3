@@ -256,6 +256,12 @@ SoapySDR::Stream *SoapySDRPlay::setupStream(const int direction,
                                             const std::vector<size_t> &channels,
                                             const SoapySDR::Kwargs &args)
 {
+    // Prevent format changes while streaming is active
+    if (streamActive)
+    {
+        throw std::runtime_error("setupStream cannot be called while streaming is active");
+    }
+
     size_t nchannels = device.hwVer == SDRPLAY_RSPduo_ID && device.rspDuoMode == sdrplay_api_RspDuoMode_Dual_Tuner ? 2 : 1;
 
     // check the channel configuration
