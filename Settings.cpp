@@ -722,7 +722,11 @@ void SoapySDRPlay::setFrequency(const int direction,
          deviceParams->devParams->ppm = frequency;
          if (streamActive)
          {
-            sdrplay_api_Update(device.dev, device.tuner, sdrplay_api_Update_Dev_Ppm, sdrplay_api_Update_Ext1_None);
+            sdrplay_api_ErrT err = sdrplay_api_Update(device.dev, device.tuner, sdrplay_api_Update_Dev_Ppm, sdrplay_api_Update_Ext1_None);
+            if (err != sdrplay_api_Success)
+            {
+               SoapySDR_logf(SOAPY_SDR_WARNING, "sdrplay_api_Update(Dev_Ppm) failed: %s", sdrplay_api_GetErrorString(err));
+            }
          }
       }
    }
@@ -1053,7 +1057,11 @@ void SoapySDRPlay::setBandwidth(const int direction, const size_t channel, const
          chParams->tunerParams.bwType = bwType;
          if (streamActive)
          {
-            sdrplay_api_Update(device.dev, device.tuner, sdrplay_api_Update_Tuner_BwType, sdrplay_api_Update_Ext1_None);
+            sdrplay_api_ErrT err = sdrplay_api_Update(device.dev, device.tuner, sdrplay_api_Update_Tuner_BwType, sdrplay_api_Update_Ext1_None);
+            if (err != sdrplay_api_Success)
+            {
+               SoapySDR_logf(SOAPY_SDR_WARNING, "sdrplay_api_Update(Tuner_BwType) failed: %s", sdrplay_api_GetErrorString(err));
+            }
          }
       }
    }
