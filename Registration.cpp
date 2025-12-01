@@ -43,11 +43,11 @@ static std::vector<SoapySDR::Kwargs> findSDRPlay(const SoapySDR::Kwargs &args)
 
       for (unsigned int i = 0; i < nDevs; i++)
       {
-      if (not rspDevs[i].valid) continue;
+      if (!rspDevs[i].valid) continue;
       SoapySDR::Kwargs dev;
       dev["serial"] = rspDevs[i].SerNo;
-      const bool serialMatch = args.count("serial") == 0 or args.at("serial") == dev["serial"];
-      if (not serialMatch) continue;
+      const bool serialMatch = args.count("serial") == 0 || args.at("serial") == dev["serial"];
+      if (!serialMatch) continue;
       std::string modelName;
       if (rspDevs[i].hwVer == SDRPLAY_RSP1_ID)
       {
@@ -90,7 +90,7 @@ static std::vector<SoapySDR::Kwargs> findSDRPlay(const SoapySDR::Kwargs &args)
       if (rspDevs[i].rspDuoMode & sdrplay_api_RspDuoMode_Single_Tuner)
       {
          dev["mode"] = "ST";
-         const bool modeMatch = args.count("mode") == 0 or args.at("mode") == dev["mode"];
+         const bool modeMatch = args.count("mode") == 0 || args.at("mode") == dev["mode"];
          if (modeMatch)
          {
             dev["label"] = "SDRplay Dev" + std::to_string(results.size()) + " " + modelName + " " + rspDevs[i].SerNo + " - Single Tuner";
@@ -101,7 +101,7 @@ static std::vector<SoapySDR::Kwargs> findSDRPlay(const SoapySDR::Kwargs &args)
       if (rspDevs[i].rspDuoMode & sdrplay_api_RspDuoMode_Dual_Tuner)
       {
          dev["mode"] = "DT";
-         const bool modeMatch = args.count("mode") == 0 or args.at("mode") == dev["mode"];
+         const bool modeMatch = args.count("mode") == 0 || args.at("mode") == dev["mode"];
          if (modeMatch)
          {
             dev["label"] = "SDRplay Dev" + std::to_string(results.size()) + " " + modelName + " " + rspDevs[i].SerNo + " - Dual Tuner";
@@ -112,7 +112,7 @@ static std::vector<SoapySDR::Kwargs> findSDRPlay(const SoapySDR::Kwargs &args)
       if (rspDevs[i].rspDuoMode & sdrplay_api_RspDuoMode_Master)
       {
          dev["mode"] = "MA";
-         const bool modeMatch = args.count("mode") == 0 or args.at("mode") == dev["mode"];
+         const bool modeMatch = args.count("mode") == 0 || args.at("mode") == dev["mode"];
          if (modeMatch)
          {
             dev["label"] = "SDRplay Dev" + std::to_string(results.size()) + " " + modelName + " " + rspDevs[i].SerNo + " - Master";
@@ -123,7 +123,7 @@ static std::vector<SoapySDR::Kwargs> findSDRPlay(const SoapySDR::Kwargs &args)
       if (rspDevs[i].rspDuoMode & sdrplay_api_RspDuoMode_Master)
       {
          dev["mode"] = "MA8";
-         const bool modeMatch = args.count("mode") == 0 or args.at("mode") == dev["mode"];
+         const bool modeMatch = args.count("mode") == 0 || args.at("mode") == dev["mode"];
          if (modeMatch)
          {
             dev["label"] = "SDRplay Dev" + std::to_string(results.size()) + " " + modelName + " " + rspDevs[i].SerNo + " - Master (RSPduo sample rate=8Mhz)";
@@ -134,7 +134,7 @@ static std::vector<SoapySDR::Kwargs> findSDRPlay(const SoapySDR::Kwargs &args)
       if (rspDevs[i].rspDuoMode & sdrplay_api_RspDuoMode_Slave)
       {
          dev["mode"] = "SL";
-         const bool modeMatch = args.count("mode") == 0 or args.at("mode") == dev["mode"];
+         const bool modeMatch = args.count("mode") == 0 || args.at("mode") == dev["mode"];
          if (modeMatch)
          {
             dev["label"] = "SDRplay Dev" + std::to_string(results.size()) + " " + modelName + " " + rspDevs[i].SerNo + " - Slave";

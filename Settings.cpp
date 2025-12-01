@@ -2168,7 +2168,7 @@ void SoapySDRPlay::selectDevice(sdrplay_api_TunerSelectT tuner,
         {
             SoapySDR_logf(SOAPY_SDR_INFO, "  [%u] SerNo=%s hwVer=%d valid=%d dev=%p",
                           i, rspDevs[i].SerNo, rspDevs[i].hwVer, rspDevs[i].valid, (void*)rspDevs[i].dev);
-            if (not rspDevs[i].valid) continue;
+            if (!rspDevs[i].valid) continue;
             if (rspDevs[i].SerNo == serNo) devIdx = i;
         }
         if (devIdx == SDRPLAY_MAX_DEVICES) {

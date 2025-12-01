@@ -283,7 +283,7 @@ SoapySDR::Stream *SoapySDRPlay::setupStream(const int direction,
     size_t nchannels = device.hwVer == SDRPLAY_RSPduo_ID && device.rspDuoMode == sdrplay_api_RspDuoMode_Dual_Tuner ? 2 : 1;
 
     // check the channel configuration
-    if (channels.size() > 1 or (channels.size() > 0 and channels.at(0) >= nchannels))
+    if (channels.size() > 1 || (channels.size() > 0 && channels.at(0) >= nchannels))
     {
        throw std::runtime_error("setupStream invalid channel selection");
     }
