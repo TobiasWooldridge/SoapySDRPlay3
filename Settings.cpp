@@ -546,7 +546,11 @@ void SoapySDRPlay::setGainMode(const int direction, const size_t channel, const 
         chParams->ctrlParams.agc.enable = agc_control;
         if (streamActive)
         {
-            sdrplay_api_Update(device.dev, device.tuner, sdrplay_api_Update_Ctrl_Agc, sdrplay_api_Update_Ext1_None);
+            sdrplay_api_ErrT err = sdrplay_api_Update(device.dev, device.tuner, sdrplay_api_Update_Ctrl_Agc, sdrplay_api_Update_Ext1_None);
+            if (err != sdrplay_api_Success)
+            {
+                SoapySDR_logf(SOAPY_SDR_WARNING, "sdrplay_api_Update(Ctrl_Agc) failed: %s", sdrplay_api_GetErrorString(err));
+            }
         }
     }
 }
@@ -1633,7 +1637,11 @@ void SoapySDRPlay::writeSetting(const std::string &key, const std::string &value
       chParams->ctrlParams.agc.setPoint_dBfs = stoi(value);
       if (streamActive)
       {
-         sdrplay_api_Update(device.dev, device.tuner, sdrplay_api_Update_Ctrl_Agc, sdrplay_api_Update_Ext1_None);
+         sdrplay_api_ErrT err = sdrplay_api_Update(device.dev, device.tuner, sdrplay_api_Update_Ctrl_Agc, sdrplay_api_Update_Ext1_None);
+         if (err != sdrplay_api_Success)
+         {
+            SoapySDR_logf(SOAPY_SDR_WARNING, "sdrplay_api_Update(Ctrl_Agc) failed: %s", sdrplay_api_GetErrorString(err));
+         }
       }
    }
    else if (key == "extref_ctrl")
