@@ -285,6 +285,11 @@ void SoapySDRPlay::setAntenna(const int direction, const size_t channel, const s
     }
     else if (device.hwVer == SDRPLAY_RSPdx_ID)
     {
+        if (!deviceParams->devParams)
+        {
+            SoapySDR_log(SOAPY_SDR_WARNING, "setAntenna: devParams is null for RSPdx");
+            return;
+        }
         if (name == "Antenna A")
         {
             deviceParams->devParams->rspDxParams.antennaSel = sdrplay_api_RspDx_ANTENNA_A;
@@ -309,6 +314,11 @@ void SoapySDRPlay::setAntenna(const int direction, const size_t channel, const s
     }
     else if (device.hwVer == SDRPLAY_RSPdxR2_ID)
     {
+        if (!deviceParams->devParams)
+        {
+            SoapySDR_log(SOAPY_SDR_WARNING, "setAntenna: devParams is null for RSPdxR2");
+            return;
+        }
         if (name == "Antenna A")
         {
             deviceParams->devParams->rspDxParams.antennaSel = sdrplay_api_RspDx_ANTENNA_A;
@@ -396,6 +406,11 @@ void SoapySDRPlay::setAntenna(const int direction, const size_t channel, const s
             {
                 // preserve all the device and tuner settings
                 // when changing tuner/antenna
+                if (!deviceParams->devParams)
+                {
+                    SoapySDR_log(SOAPY_SDR_WARNING, "setAntenna: devParams is null for RSPduo tuner switch");
+                    return;
+                }
                 sdrplay_api_DevParamsT devParams = *deviceParams->devParams;
                 sdrplay_api_RxChannelParamsT rxChannelParams = *chParams;
                 sdrplay_api_TunerSelectT other_tuner = (device.tuner == sdrplay_api_Tuner_A) ? sdrplay_api_Tuner_B : sdrplay_api_Tuner_A;
@@ -446,6 +461,9 @@ std::string SoapySDRPlay::getAntenna(const int direction, const size_t channel) 
     }
     else if (device.hwVer == SDRPLAY_RSPdx_ID)
     {
+        if (!deviceParams->devParams) {
+            return "RX";
+        }
         if (deviceParams->devParams->rspDxParams.antennaSel == sdrplay_api_RspDx_ANTENNA_A) {
             return "Antenna A";
         }
@@ -458,6 +476,9 @@ std::string SoapySDRPlay::getAntenna(const int direction, const size_t channel) 
     }
     else if (device.hwVer == SDRPLAY_RSPdxR2_ID)
     {
+        if (!deviceParams->devParams) {
+            return "RX";
+        }
         if (deviceParams->devParams->rspDxParams.antennaSel == sdrplay_api_RspDx_ANTENNA_A) {
             return "Antenna A";
         }
@@ -865,7 +886,9 @@ double SoapySDRPlay::getSampleRate(const int direction, const size_t channel) co
    }
    else
    {
-      return fsHz / chParams->ctrlParams.decimation.decimationFactor;
+      unsigned int decFactor = chParams->ctrlParams.decimation.decimationFactor;
+      if (decFactor == 0) decFactor = 1;  // Prevent division by zero
+      return fsHz / decFactor;
    }
 }
 
@@ -2080,6 +2103,12 @@ void SoapySDRPlay::selectDevice(const std::string &serial,
 
 void SoapySDRPlay::selectDevice()
 {
+    // Prevent device re-selection while streaming is active to avoid
+    // invalidating pointers used by callbacks
+    if (streamActive) {
+        return;
+    }
+
     bool needsReselect = false;
     {
         std::lock_guard<std::mutex> lock(selectedRSPDevices_mutex);

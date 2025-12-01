@@ -80,7 +80,7 @@ void SoapySDRPlay::rx_callback(short *xi, short *xq,
                                unsigned int numSamples,
                                SoapySDRPlayStream *stream)
 {
-    if (stream == nullptr) {
+    if (stream == nullptr || device_unavailable) {
         return;
     }
     std::lock_guard<std::mutex> lock(stream->mutex);
@@ -217,8 +217,12 @@ void SoapySDRPlay::ev_callback(sdrplay_api_EventT eventId, sdrplay_api_TunerSele
         device_unavailable = true;
         // Wake up any waiting threads so they can exit gracefully
         update_cv.notify_all();
-        if (_streams[0]) _streams[0]->cond.notify_all();
-        if (_streams[1]) _streams[1]->cond.notify_all();
+        // Safely access stream pointers under lock to prevent use-after-free
+        {
+            std::lock_guard<std::mutex> lock(_general_state_mutex);
+            if (_streams[0]) _streams[0]->cond.notify_all();
+            if (_streams[1]) _streams[1]->cond.notify_all();
+        }
     }
     else if (eventId == sdrplay_api_RspDuoModeChange)
     {
@@ -230,8 +234,12 @@ void SoapySDRPlay::ev_callback(sdrplay_api_EventT eventId, sdrplay_api_TunerSele
             device_unavailable = true;
             // Wake up any waiting threads so they can exit gracefully
             update_cv.notify_all();
-            if (_streams[0]) _streams[0]->cond.notify_all();
-            if (_streams[1]) _streams[1]->cond.notify_all();
+            // Safely access stream pointers under lock to prevent use-after-free
+            {
+                std::lock_guard<std::mutex> lock(_general_state_mutex);
+                if (_streams[0]) _streams[0]->cond.notify_all();
+                if (_streams[1]) _streams[1]->cond.notify_all();
+            }
         }
     }
 }
@@ -424,6 +432,12 @@ int SoapySDRPlay::activateStream(SoapySDR::Stream *stream,
     if (err != sdrplay_api_Success)
     {
         SoapySDR_logf(SOAPY_SDR_ERROR, "error in activateStream() - Init() failed: %s", sdrplay_api_GetErrorString(err));
+        // Clean up stream state that was set before Init() was called
+        _streamsRefCount[sdrplay_stream->channel]--;
+        if (_streamsRefCount[sdrplay_stream->channel] == 0)
+        {
+            _streams[sdrplay_stream->channel] = nullptr;
+        }
         return SOAPY_SDR_NOT_SUPPORTED;
     }
 
