@@ -486,15 +486,15 @@ void SoapySDRPlay::setDCOffsetMode(const int direction, const size_t channel, co
     std::lock_guard <std::mutex> lock(_general_state_mutex);
 
     //enable/disable automatic DC removal
-    chParams->ctrlParams.dcOffset.DCenable = (unsigned char)automatic;
-    chParams->ctrlParams.dcOffset.IQenable = (unsigned char)automatic;
+    chParams->ctrlParams.dcOffset.DCenable = static_cast<unsigned char>(automatic);
+    chParams->ctrlParams.dcOffset.IQenable = static_cast<unsigned char>(automatic);
 }
 
 bool SoapySDRPlay::getDCOffsetMode(const int direction, const size_t channel) const
 {
     std::lock_guard <std::mutex> lock(_general_state_mutex);
 
-    return (bool)chParams->ctrlParams.dcOffset.DCenable;
+    return static_cast<bool>(chParams->ctrlParams.dcOffset.DCenable);
 }
 
 bool SoapySDRPlay::hasDCOffset(const int direction, const size_t channel) const
@@ -573,9 +573,9 @@ void SoapySDRPlay::setGain(const int direction, const size_t channel, const std:
       if (chParams->ctrlParams.agc.enable == sdrplay_api_AGC_DISABLE)
       {
          //apply the change if the required value is different from gRdB
-         if (chParams->tunerParams.gain.gRdB != (int)value)
+         if (chParams->tunerParams.gain.gRdB != static_cast<int>(value))
          {
-            chParams->tunerParams.gain.gRdB = (int)value;
+            chParams->tunerParams.gain.gRdB = static_cast<int>(value);
             doUpdate = true;
          }
       }
@@ -586,8 +586,8 @@ void SoapySDRPlay::setGain(const int direction, const size_t channel, const std:
    }
    else if (name == "RFGR")
    {
-      if (chParams->tunerParams.gain.LNAstate != (int)value) {
-          chParams->tunerParams.gain.LNAstate = (int)value;
+      if (chParams->tunerParams.gain.LNAstate != static_cast<int>(value)) {
+          chParams->tunerParams.gain.LNAstate = static_cast<int>(value);
           doUpdate = true;
       }
    }
@@ -744,7 +744,7 @@ double SoapySDRPlay::getFrequency(const int direction, const size_t channel, con
 
     if (name == "RF")
     {
-        return (double)chParams->tunerParams.rfFreq.rfHz;
+        return static_cast<double>(chParams->tunerParams.rfFreq.rfHz);
     }
     else if (name == "CORR")
     {
@@ -829,13 +829,13 @@ void SoapySDRPlay::setSampleRate(const int direction, const size_t channel, cons
        if (deviceParams->devParams && input_sample_rate != deviceParams->devParams->fsFreq.fsHz)
        {
           deviceParams->devParams->fsFreq.fsHz = input_sample_rate;
-          reasonForUpdate = (sdrplay_api_ReasonForUpdateT)(reasonForUpdate | sdrplay_api_Update_Dev_Fs);
+          reasonForUpdate = static_cast<sdrplay_api_ReasonForUpdateT>(reasonForUpdate | sdrplay_api_Update_Dev_Fs);
           waitForUpdate = true;
        }
        if (ifType != chParams->tunerParams.ifType)
        {
           chParams->tunerParams.ifType = ifType;
-          reasonForUpdate = (sdrplay_api_ReasonForUpdateT)(reasonForUpdate | sdrplay_api_Update_Tuner_IfType);
+          reasonForUpdate = static_cast<sdrplay_api_ReasonForUpdateT>(reasonForUpdate | sdrplay_api_Update_Tuner_IfType);
        }
        if (decM != chParams->ctrlParams.decimation.decimationFactor)
        {
@@ -847,12 +847,12 @@ void SoapySDRPlay::setSampleRate(const int direction, const size_t channel, cons
           else {
               chParams->ctrlParams.decimation.wideBandSignal = 0;
           }
-          reasonForUpdate = (sdrplay_api_ReasonForUpdateT)(reasonForUpdate | sdrplay_api_Update_Ctrl_Decimation);
+          reasonForUpdate = static_cast<sdrplay_api_ReasonForUpdateT>(reasonForUpdate | sdrplay_api_Update_Ctrl_Decimation);
        }
        if (bwType != chParams->tunerParams.bwType)
        {
           chParams->tunerParams.bwType = bwType;
-          reasonForUpdate = (sdrplay_api_ReasonForUpdateT)(reasonForUpdate | sdrplay_api_Update_Tuner_BwType);
+          reasonForUpdate = static_cast<sdrplay_api_ReasonForUpdateT>(reasonForUpdate | sdrplay_api_Update_Tuner_BwType);
        }
        if (reasonForUpdate != sdrplay_api_Update_None)
        {

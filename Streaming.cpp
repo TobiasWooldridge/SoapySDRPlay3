@@ -57,21 +57,21 @@ SoapySDR::ArgInfoList SoapySDRPlay::getStreamArgsInfo(const int direction, const
 static void _rx_callback_A(short *xi, short *xq, sdrplay_api_StreamCbParamsT *params,
                            unsigned int numSamples, unsigned int reset, void *cbContext)
 {
-    SoapySDRPlay *self = (SoapySDRPlay *)cbContext;
+    auto *self = static_cast<SoapySDRPlay *>(cbContext);
     return self->rx_callback(xi, xq, params, numSamples, self->_streams[0]);
 }
 
 static void _rx_callback_B(short *xi, short *xq, sdrplay_api_StreamCbParamsT *params,
                            unsigned int numSamples, unsigned int reset, void *cbContext)
 {
-    SoapySDRPlay *self = (SoapySDRPlay *)cbContext;
+    auto *self = static_cast<SoapySDRPlay *>(cbContext);
     return self->rx_callback(xi, xq, params, numSamples, self->_streams[1]);
 }
 
 static void _ev_callback(sdrplay_api_EventT eventId, sdrplay_api_TunerSelectT tuner,
                          sdrplay_api_EventParamsT *params, void *cbContext)
 {
-    SoapySDRPlay *self = (SoapySDRPlay *)cbContext;
+    auto *self = static_cast<SoapySDRPlay *>(cbContext);
     return self->ev_callback(eventId, tuner, params);
 }
 
@@ -122,7 +122,7 @@ void SoapySDRPlay::rx_callback(short *xi, short *xq,
        stream->count++;
 
        auto &buff = stream->buffs[stream->tail];
-       if (stream->count == numBuffers && (size_t) spaceReqd > buff.capacity() - buff.size())
+       if (stream->count == numBuffers && static_cast<size_t>(spaceReqd) > buff.capacity() - buff.size())
        {
            stream->overflowEvent = true;
            return;
@@ -161,12 +161,12 @@ void SoapySDRPlay::rx_callback(short *xi, short *xq,
     }
     else
     {
-       float *dptr = (float *)buff.data();
+       auto *dptr = reinterpret_cast<float *>(buff.data());
        dptr += ((buff.size() - spaceReqd) / shortsPerWord);
        for (i = 0; i < numSamples; i++)
        {
-          *dptr++ = (float)xi[i] / 32768.0f;
-          *dptr++ = (float)xq[i] / 32768.0f;
+          *dptr++ = static_cast<float>(xi[i]) / 32768.0f;
+          *dptr++ = static_cast<float>(xq[i]) / 32768.0f;
        }
     }
 
@@ -420,7 +420,7 @@ int SoapySDRPlay::activateStream(SoapySDR::Stream *stream,
     deviceParams->devParams->mode = sdrplay_api_BULK;
 #endif
 
-    err = sdrplay_api_Init(device.dev, &cbFns, (void *)this);
+    err = sdrplay_api_Init(device.dev, &cbFns, static_cast<void *>(this));
     if (err != sdrplay_api_Success)
     {
         SoapySDR_logf(SOAPY_SDR_ERROR, "error in activateStream() - Init() failed: %s", sdrplay_api_GetErrorString(err));
@@ -504,7 +504,7 @@ int SoapySDRPlay::readStream(SoapySDR::Stream *stream,
     }
     else
     {
-        std::memcpy(buffs[0], (float *)(void*)sdrplay_stream->currentBuff, returnedElems * 2 * sizeof(float));
+        std::memcpy(buffs[0], reinterpret_cast<const float *>(sdrplay_stream->currentBuff), returnedElems * 2 * sizeof(float));
     }
 
     // bump variables for next call into readStream
@@ -525,7 +525,7 @@ int SoapySDRPlay::readStream(SoapySDR::Stream *stream,
     {
         this->releaseReadBuffer(stream, sdrplay_stream->currentHandle);
     }
-    return (int)returnedElems;
+    return static_cast<int>(returnedElems);
 }
 
 /*******************************************************************
@@ -557,7 +557,7 @@ int SoapySDRPlay::getDirectAccessBufferAddrs(SoapySDR::Stream *stream, const siz
         return SOAPY_SDR_OVERFLOW;
     }
     // always write to buffs[0] since each stream can have only one rx/channel
-    buffs[0] = (void *)sdrplay_stream->buffs[handle].data();
+    buffs[0] = static_cast<void *>(sdrplay_stream->buffs[handle].data());
     return 0;
 }
 
@@ -616,13 +616,13 @@ int SoapySDRPlay::acquireReadBuffer(SoapySDR::Stream *stream,
     // extract handle and buffer
     handle = sdrplay_stream->head;
     // always write to buffs[0] since each stream can have only one rx/channel
-    buffs[0] = (void *)sdrplay_stream->buffs[handle].data();
+    buffs[0] = static_cast<void *>(sdrplay_stream->buffs[handle].data());
     flags = 0;
 
     sdrplay_stream->head = (sdrplay_stream->head + 1) % numBuffers;
 
     // return number available
-    return (int)(sdrplay_stream->buffs[handle].size() / (elementsPerSample * shortsPerWord));
+    return static_cast<int>(sdrplay_stream->buffs[handle].size() / (elementsPerSample * shortsPerWord));
 }
 
 void SoapySDRPlay::releaseReadBuffer(SoapySDR::Stream *stream, const size_t handle)
