@@ -26,13 +26,18 @@
 
 #include "SoapySDRPlay.hpp"
 #include <SoapySDR/Registry.hpp>
+#include <mutex>
 
 static std::map<std::string, SoapySDR::Kwargs> _cachedResults;
+static std::mutex _cachedResultsMutex;
 
 static std::vector<SoapySDR::Kwargs> findSDRPlay(const SoapySDR::Kwargs &args)
 {
    std::vector<SoapySDR::Kwargs> results;
    unsigned int nDevs = 0;
+
+   // Protect access to _cachedResults throughout the function
+   std::lock_guard<std::mutex> cacheLock(_cachedResultsMutex);
 
    // list devices by API
    SoapySDRPlay::sdrplay_api::get_instance();
