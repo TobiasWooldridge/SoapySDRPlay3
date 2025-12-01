@@ -459,6 +459,9 @@ int SoapySDRPlay::activateStream(SoapySDR::Stream *stream,
 
     streamActive = true;
 
+    // Notify any threads waiting in readStream() that the stream is now active
+    update_cv.notify_all();
+
     return 0;
 }
 
@@ -480,13 +483,15 @@ int SoapySDRPlay::readStream(SoapySDR::Stream *stream,
                              long long &timeNs,
                              const long timeoutUs)
 {
-    // the API requests us to wait until either the
-    // timeout is reached or the stream is activated
+    // Wait until either the timeout is reached or the stream is activated
+    // Use condition variable instead of sleep for immediate wake-up when stream activates
     if (!streamActive)
     {
-        using us = std::chrono::microseconds;
-        std::this_thread::sleep_for(us(timeoutUs));
-        if(!streamActive){
+        std::unique_lock<std::mutex> lk(update_mutex);
+        update_cv.wait_for(lk, std::chrono::microseconds(timeoutUs),
+                           [this]{ return streamActive.load() || device_unavailable.load(); });
+        if (!streamActive)
+        {
             return SOAPY_SDR_TIMEOUT;
         }
     }
