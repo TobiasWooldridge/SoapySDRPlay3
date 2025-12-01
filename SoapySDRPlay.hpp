@@ -314,6 +314,7 @@ private:
 
     //cached settings
     std::atomic_ulong bufferLength;
+    std::atomic_ulong cachedBufferThreshold;  // bufferLength / decFactor, cached for hot path
 
     //numBuffers, bufferElems, elementsPerSample
     //are indeed constants

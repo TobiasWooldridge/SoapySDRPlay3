@@ -59,6 +59,7 @@ SoapySDRPlay::SoapySDRPlay(const SoapySDR::Kwargs &args)
     useShort = true;
     shortsPerWord = 1;
     bufferLength = bufferElems * elementsPerSample * shortsPerWord;
+    cachedBufferThreshold = bufferLength.load();  // Initially no decimation
 
     selectDevice(args.at("serial"),
                  args.count("mode") ? args.at("mode") : "",
@@ -840,6 +841,8 @@ void SoapySDRPlay::setSampleRate(const int direction, const size_t channel, cons
           else {
               chParams->ctrlParams.decimation.wideBandSignal = 0;
           }
+          // Update cached buffer threshold to avoid division in hot path
+          cachedBufferThreshold = (decM > 0) ? (bufferLength / decM) : bufferLength.load();
           reasonForUpdate = static_cast<sdrplay_api_ReasonForUpdateT>(reasonForUpdate | sdrplay_api_Update_Ctrl_Decimation);
        }
        if (bwType != chParams->tunerParams.bwType)

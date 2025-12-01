@@ -113,9 +113,10 @@ void SoapySDRPlay::rx_callback(short *xi, short *xq,
     }
 
     int spaceReqd = numSamples * elementsPerSample * shortsPerWord;
-    unsigned int decFactor = chParams->ctrlParams.decimation.decimationFactor;
-    if (decFactor == 0) decFactor = 1;  // Prevent division by zero
-    if ((stream->buffs[stream->tail].size() + spaceReqd) >= (bufferLength / decFactor))
+    // Use cached threshold to avoid division in hot path
+    unsigned long threshold = cachedBufferThreshold.load(std::memory_order_relaxed);
+    if (threshold == 0) threshold = bufferLength;  // Fallback if not yet initialized
+    if ((stream->buffs[stream->tail].size() + spaceReqd) >= threshold)
     {
        // increment the tail pointer and buffer count
        // Use bitwise AND instead of modulo for power-of-2 numBuffers (faster)
@@ -320,6 +321,11 @@ SoapySDR::Stream *SoapySDRPlay::setupStream(const int direction,
         throw std::runtime_error( "setupStream invalid format '" + format +
                                   "' -- Only CS16 or CF32 are supported by the SoapySDRPlay module.");
     }
+
+    // Initialize cached buffer threshold based on current decimation factor
+    unsigned int decFactor = chParams->ctrlParams.decimation.decimationFactor;
+    if (decFactor == 0) decFactor = 1;
+    cachedBufferThreshold = bufferLength / decFactor;
 
     // default is channel 0
     size_t channel = channels.size() == 0 ? 0 : channels.at(0);
