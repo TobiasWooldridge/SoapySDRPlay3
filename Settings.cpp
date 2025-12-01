@@ -47,8 +47,8 @@ SoapySDRPlay::SoapySDRPlay(const SoapySDR::Kwargs &args)
     if (args.count("serial") == 0) throw std::runtime_error("no available RSP devices found");
 
     // Initialize atomics and stream pointers BEFORE selectDevice() which may trigger callbacks
-    _streams[0] = 0;
-    _streams[1] = 0;
+    _streams[0] = nullptr;
+    _streams[1] = nullptr;
     _streamsRefCount[0] = 0;
     _streamsRefCount[1] = 0;
     streamActive = false;
@@ -102,8 +102,8 @@ SoapySDRPlay::~SoapySDRPlay(void)
 
     releaseDevice();
 
-    _streams[0] = 0;
-    _streams[1] = 0;
+    _streams[0] = nullptr;
+    _streams[1] = nullptr;
     _streamsRefCount[0] = 0;
     _streamsRefCount[1] = 0;
 }

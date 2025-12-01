@@ -80,7 +80,7 @@ void SoapySDRPlay::rx_callback(short *xi, short *xq,
                                unsigned int numSamples,
                                SoapySDRPlayStream *stream)
 {
-    if (stream == 0) {
+    if (stream == nullptr) {
         return;
     }
     std::lock_guard<std::mutex> lock(stream->mutex);
@@ -316,7 +316,7 @@ SoapySDR::Stream *SoapySDRPlay::setupStream(const int direction,
         std::lock_guard<std::mutex> lock(_general_state_mutex);
         sdrplay_stream = _streams[channel];
     }
-    if (sdrplay_stream == 0)
+    if (sdrplay_stream == nullptr)
     {
         sdrplay_stream = new SoapySDRPlayStream(channel, numBuffers, bufferLength);
     }
@@ -338,7 +338,7 @@ void SoapySDRPlay::closeStream(SoapySDR::Stream *stream)
             _streamsRefCount[i]--;
             if (_streamsRefCount[i] == 0)
             {
-                _streams[i] = 0;
+                _streams[i] = nullptr;
                 deleteStream = true;
             }
         }
@@ -464,7 +464,7 @@ int SoapySDRPlay::readStream(SoapySDR::Stream *stream,
     SoapySDRPlayStream *sdrplay_stream = reinterpret_cast<SoapySDRPlayStream *>(stream);
     {
         std::lock_guard<std::mutex> lock(_general_state_mutex);
-        if (_streams[sdrplay_stream->channel] == 0)
+        if (_streams[sdrplay_stream->channel] == nullptr)
         {
             //throw std::runtime_error("readStream stream not activated");
             return SOAPY_SDR_NOT_SUPPORTED;
