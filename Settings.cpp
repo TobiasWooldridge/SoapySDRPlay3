@@ -46,6 +46,20 @@ SoapySDRPlay::SoapySDRPlay(const SoapySDR::Kwargs &args)
 {
     if (args.count("serial") == 0) throw std::runtime_error("no available RSP devices found");
 
+    // Initialize atomics and stream pointers BEFORE selectDevice() which may trigger callbacks
+    _streams[0] = 0;
+    _streams[1] = 0;
+    _streamsRefCount[0] = 0;
+    _streamsRefCount[1] = 0;
+    streamActive = false;
+    device_unavailable = false;
+    gr_changed = 0;
+    rf_changed = 0;
+    fs_changed = 0;
+    useShort = true;
+    shortsPerWord = 1;
+    bufferLength = bufferElems * elementsPerSample * shortsPerWord;
+
     selectDevice(args.at("serial"),
                  args.count("mode") ? args.at("mode") : "",
                  args.count("antenna") ? args.at("antenna") : "");
@@ -75,21 +89,6 @@ SoapySDRPlay::SoapySDRPlay(const SoapySDR::Kwargs &args)
         }
         writeSetting(arg.first, arg.second);
     }
-
-    // streaming settings
-    // this may change later according to format
-    shortsPerWord = 1;
-    bufferLength = bufferElems * elementsPerSample * shortsPerWord;
-
-    _streams[0] = 0;
-    _streams[1] = 0;
-    _streamsRefCount[0] = 0;
-    _streamsRefCount[1] = 0;
-    useShort = true;
-
-    streamActive = false;
-
-    device_unavailable = false;
 
     cacheKey = serNo;
     if (hwVer == SDRPLAY_RSPduo_ID) cacheKey += "@" + args.at("mode");
