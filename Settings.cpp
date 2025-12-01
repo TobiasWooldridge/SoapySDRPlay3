@@ -33,6 +33,7 @@
 #endif
 
 std::unordered_map<std::string, sdrplay_api_DeviceT*> SoapySDRPlay::selectedRSPDevices;
+static std::mutex selectedRSPDevices_mutex;
 
 
 std::set<std::string> &SoapySDRPlay_getClaimedSerials(void)
@@ -572,14 +573,9 @@ void SoapySDRPlay::setGain(const int direction, const size_t channel, const std:
          SoapySDR_logf(SOAPY_SDR_WARNING, "sdrplay_api_Update(Tuner_Gr) Error: %s", sdrplay_api_GetErrorString(err));
          return;
       }
-      for (int i = 0; i < updateTimeout; ++i)
-      {
-         if (gr_changed != 0) {
-            break;
-         }
-         std::this_thread::sleep_for(std::chrono::milliseconds(1));
-      }
-      if (gr_changed == 0)
+      std::unique_lock<std::mutex> lk(update_mutex);
+      if (!update_cv.wait_for(lk, std::chrono::milliseconds(updateTimeout),
+                              [this]{ return gr_changed != 0; }))
       {
          SoapySDR_log(SOAPY_SDR_WARNING, "Gain reduction update timeout.");
       }
@@ -683,14 +679,9 @@ void SoapySDRPlay::setFrequency(const int direction,
                   SoapySDR_logf(SOAPY_SDR_WARNING, "sdrplay_api_Update(Tuner_FrF) Error: %s", sdrplay_api_GetErrorString(err));
                   return;
                }
-               for (int i = 0; i < updateTimeout; ++i)
-               {
-                  if (rf_changed != 0) {
-                     break;
-                  }
-                  std::this_thread::sleep_for(std::chrono::milliseconds(1));
-               }
-               if (rf_changed == 0)
+               std::unique_lock<std::mutex> lk(update_mutex);
+               if (!update_cv.wait_for(lk, std::chrono::milliseconds(updateTimeout),
+                                       [this]{ return rf_changed != 0; }))
                {
                   SoapySDR_log(SOAPY_SDR_WARNING, "RF center frequency update timeout.");
                }
@@ -850,14 +841,9 @@ void SoapySDRPlay::setSampleRate(const int direction, const size_t channel, cons
              }
              if (waitForUpdate)
              {
-                for (int i = 0; i < updateTimeout; ++i)
-                {
-                   if (fs_changed != 0) {
-                      break;
-                   }
-                   std::this_thread::sleep_for(std::chrono::milliseconds(1));
-                }
-                if (fs_changed == 0)
+                std::unique_lock<std::mutex> lk(update_mutex);
+                if (!update_cv.wait_for(lk, std::chrono::milliseconds(updateTimeout),
+                                        [this]{ return fs_changed != 0; }))
                 {
                    SoapySDR_log(SOAPY_SDR_WARNING, "Sample rate update timeout.");
                 }
@@ -1599,14 +1585,9 @@ void SoapySDRPlay::writeSetting(const std::string &key, const std::string &value
             SoapySDR_logf(SOAPY_SDR_WARNING, "sdrplay_api_Update(Tuner_Gr) Error: %s", sdrplay_api_GetErrorString(err));
             return;
          }
-         for (int i = 0; i < updateTimeout; ++i)
-         {
-            if (gr_changed != 0) {
-               break;
-            }
-            std::this_thread::sleep_for(std::chrono::milliseconds(1));
-         }
-         if (gr_changed == 0)
+         std::unique_lock<std::mutex> lk(update_mutex);
+         if (!update_cv.wait_for(lk, std::chrono::milliseconds(updateTimeout),
+                                 [this]{ return gr_changed != 0; }))
          {
             SoapySDR_log(SOAPY_SDR_WARNING, "Gain reduction update timeout.");
          }
@@ -1992,8 +1973,15 @@ void SoapySDRPlay::selectDevice(const std::string &serial,
 
 void SoapySDRPlay::selectDevice()
 {
-    if (selectedRSPDevices.count(rspDeviceId) > 0 &&
-        selectedRSPDevices.at(rspDeviceId) != &device) {
+    bool needsReselect = false;
+    {
+        std::lock_guard<std::mutex> lock(selectedRSPDevices_mutex);
+        if (selectedRSPDevices.count(rspDeviceId) > 0 &&
+            selectedRSPDevices.at(rspDeviceId) != &device) {
+            needsReselect = true;
+        }
+    }
+    if (needsReselect) {
         selectDevice(device.tuner, device.rspDuoMode, device.rspDuoSampleFreq,
                      deviceParams);
     }
@@ -2006,14 +1994,17 @@ void SoapySDRPlay::selectDevice(sdrplay_api_TunerSelectT tuner,
                                 sdrplay_api_DeviceParamsT *thisDeviceParams)
 {
     sdrplay_api_ErrT err;
-    if (selectedRSPDevices.count(rspDeviceId)) {
-        sdrplay_api_DeviceT *currDevice = selectedRSPDevices.at(rspDeviceId);
-        selectedRSPDevices.erase(rspDeviceId);
-        err = sdrplay_api_ReleaseDevice(currDevice);
-        if (err != sdrplay_api_Success)
-        {
-            SoapySDR_logf(SOAPY_SDR_ERROR, "ReleaseDevice Error: %s", sdrplay_api_GetErrorString(err));
-            throw std::runtime_error("ReleaseDevice() failed");
+    {
+        std::lock_guard<std::mutex> lock(selectedRSPDevices_mutex);
+        if (selectedRSPDevices.count(rspDeviceId)) {
+            sdrplay_api_DeviceT *currDevice = selectedRSPDevices.at(rspDeviceId);
+            selectedRSPDevices.erase(rspDeviceId);
+            err = sdrplay_api_ReleaseDevice(currDevice);
+            if (err != sdrplay_api_Success)
+            {
+                SoapySDR_logf(SOAPY_SDR_ERROR, "ReleaseDevice Error: %s", sdrplay_api_GetErrorString(err));
+                throw std::runtime_error("ReleaseDevice() failed");
+            }
         }
     }
 
@@ -2038,9 +2029,12 @@ void SoapySDRPlay::selectDevice(sdrplay_api_TunerSelectT tuner,
     unsigned int nDevs = 0;
 
     SoapySDR_logf(SOAPY_SDR_INFO, "selectDevice: requesting serial=%s, rspDeviceId=%s", serNo.c_str(), rspDeviceId.c_str());
-    SoapySDR_logf(SOAPY_SDR_INFO, "selectDevice: currently %zu devices in selectedRSPDevices map", selectedRSPDevices.size());
-    for (const auto& kv : selectedRSPDevices) {
-        SoapySDR_logf(SOAPY_SDR_INFO, "  - selected device: %s -> dev=%p", kv.first.c_str(), (void*)kv.second->dev);
+    {
+        std::lock_guard<std::mutex> lock(selectedRSPDevices_mutex);
+        SoapySDR_logf(SOAPY_SDR_INFO, "selectDevice: currently %zu devices in selectedRSPDevices map", selectedRSPDevices.size());
+        for (const auto& kv : selectedRSPDevices) {
+            SoapySDR_logf(SOAPY_SDR_INFO, "  - selected device: %s -> dev=%p", kv.first.c_str(), (void*)kv.second->dev);
+        }
     }
 
     sdrplay_api_LockDeviceApi();
@@ -2137,7 +2131,10 @@ void SoapySDRPlay::selectDevice(sdrplay_api_TunerSelectT tuner,
         throw std::runtime_error("SelectDevice() failed");
     }
     SoapySDR_logf(SOAPY_SDR_INFO, "selectDevice: SUCCESS! dev handle is now=%p", (void*)device.dev);
-    selectedRSPDevices[rspDeviceId] = &device;
+    {
+        std::lock_guard<std::mutex> lock(selectedRSPDevices_mutex);
+        selectedRSPDevices[rspDeviceId] = &device;
+    }
     SoapySDR_logf(SOAPY_SDR_INFO, "selectDevice: stored in selectedRSPDevices[%s]", rspDeviceId.c_str());
 
     sdrplay_api_UnlockDeviceApi();
@@ -2169,13 +2166,19 @@ void SoapySDRPlay::selectDevice(sdrplay_api_TunerSelectT tuner,
 void SoapySDRPlay::releaseDevice()
 {
     sdrplay_api_ErrT err;
-    if (selectedRSPDevices.count(rspDeviceId)) {
-        sdrplay_api_DeviceT *currDevice = selectedRSPDevices.at(rspDeviceId);
-        if (currDevice != &device) {
-            // nothing to do - we are good
-            return;
+    sdrplay_api_DeviceT *currDevice = nullptr;
+    {
+        std::lock_guard<std::mutex> lock(selectedRSPDevices_mutex);
+        if (selectedRSPDevices.count(rspDeviceId)) {
+            currDevice = selectedRSPDevices.at(rspDeviceId);
+            if (currDevice != &device) {
+                // nothing to do - we are good
+                return;
+            }
+            selectedRSPDevices.erase(rspDeviceId);
         }
-        selectedRSPDevices.erase(rspDeviceId);
+    }
+    if (currDevice) {
         err = sdrplay_api_ReleaseDevice(currDevice);
         if (err != sdrplay_api_Success)
         {

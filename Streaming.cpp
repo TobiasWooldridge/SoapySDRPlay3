@@ -85,17 +85,25 @@ void SoapySDRPlay::rx_callback(short *xi, short *xq,
     }
     std::lock_guard<std::mutex> lock(stream->mutex);
 
+    bool notify = false;
     if (gr_changed == 0 && params->grChanged != 0)
     {
         gr_changed = params->grChanged;
+        notify = true;
     }
     if (rf_changed == 0 && params->rfChanged != 0)
     {
         rf_changed = params->rfChanged;
+        notify = true;
     }
     if (fs_changed == 0 && params->fsChanged != 0)
     {
         fs_changed = params->fsChanged;
+        notify = true;
+    }
+    if (notify)
+    {
+        update_cv.notify_all();
     }
 
     if (stream->count == numBuffers)
@@ -125,9 +133,16 @@ void SoapySDRPlay::rx_callback(short *xi, short *xq,
     // get current fill buffer
     auto &buff = stream->buffs[stream->tail];
 
-    // we do not reallocate here, as we only resize within
-    // the buffers capacity
-    buff.resize(buff.size() + spaceReqd);
+    // Check if resize would exceed capacity (would cause reallocation)
+    size_t newSize = buff.size() + spaceReqd;
+    if (newSize > buff.capacity())
+    {
+        stream->overflowEvent = true;
+        return;
+    }
+
+    // resize within pre-allocated capacity (no reallocation)
+    buff.resize(newSize);
 
     // copy into the buffer queue
     unsigned int i = 0;
@@ -219,6 +234,13 @@ SoapySDRPlay::SoapySDRPlayStream::SoapySDRPlayStream(size_t channel,
     tail = 0;
     head = 0;
     count = 0;
+
+    // initialize other members
+    currentBuff = nullptr;
+    overflowEvent = false;
+    nElems = 0;
+    currentHandle = 0;
+    reset = false;
 
     // allocate buffers
     buffs.resize(numBuffers);
@@ -418,8 +440,8 @@ int SoapySDRPlay::readStream(SoapySDR::Stream *stream,
         return SOAPY_SDR_NOT_SUPPORTED;
     }
 
-    // fv
-    std::lock_guard <std::mutex> lock(sdrplay_stream->anotherMutex);
+    // Serialize readStream operations on this stream
+    std::lock_guard <std::mutex> lock(sdrplay_stream->readStreamMutex);
 
     // are elements left in the buffer? if not, do a new read.
     if (sdrplay_stream->nElems == 0)

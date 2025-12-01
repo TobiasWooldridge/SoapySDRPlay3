@@ -315,12 +315,16 @@ private:
     static std::unordered_map<std::string, sdrplay_api_DeviceT*> selectedRSPDevices;
 
     // RX callback reporting changes to gain reduction, frequency, sample rate
-    int gr_changed;
-    int rf_changed;
-    int fs_changed;
+    std::atomic<int> gr_changed;
+    std::atomic<int> rf_changed;
+    std::atomic<int> fs_changed;
     // event callback reporting device is unavailable
-    bool device_unavailable;
+    std::atomic<bool> device_unavailable;
     const int updateTimeout = 500;   // 500ms timeout for updates
+
+    // Condition variable for parameter update notifications from callback
+    std::mutex update_mutex;
+    std::condition_variable update_cv;
 
 public:
 
@@ -352,8 +356,9 @@ public:
         size_t currentHandle;
         std::atomic_bool reset;
 
-        // fv
-        std::mutex anotherMutex;
+        // Mutex for serializing readStream() operations
+        // (separate from buffer mutex to avoid deadlock)
+        std::mutex readStreamMutex;
     };
 
     SoapySDRPlayStream *_streams[2];
