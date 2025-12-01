@@ -192,12 +192,20 @@ void SoapySDRPlay::ev_callback(sdrplay_api_EventT eventId, sdrplay_api_TunerSele
         sdrplay_api_PowerOverloadCbEventIdT powerOverloadChangeType = params->powerOverloadParams.powerOverloadChangeType;
         if (powerOverloadChangeType == sdrplay_api_Overload_Detected)
         {
-            sdrplay_api_Update(device.dev, device.tuner, sdrplay_api_Update_Ctrl_OverloadMsgAck, sdrplay_api_Update_Ext1_None);
+            sdrplay_api_ErrT err = sdrplay_api_Update(device.dev, device.tuner, sdrplay_api_Update_Ctrl_OverloadMsgAck, sdrplay_api_Update_Ext1_None);
+            if (err != sdrplay_api_Success)
+            {
+                SoapySDR_logf(SOAPY_SDR_WARNING, "sdrplay_api_Update(Ctrl_OverloadMsgAck) failed: %s", sdrplay_api_GetErrorString(err));
+            }
             // OVERLOAD DETECTED
         }
         else if (powerOverloadChangeType == sdrplay_api_Overload_Corrected)
         {
-            sdrplay_api_Update(device.dev, device.tuner, sdrplay_api_Update_Ctrl_OverloadMsgAck, sdrplay_api_Update_Ext1_None);
+            sdrplay_api_ErrT err = sdrplay_api_Update(device.dev, device.tuner, sdrplay_api_Update_Ctrl_OverloadMsgAck, sdrplay_api_Update_Ext1_None);
+            if (err != sdrplay_api_Success)
+            {
+                SoapySDR_logf(SOAPY_SDR_WARNING, "sdrplay_api_Update(Ctrl_OverloadMsgAck) failed: %s", sdrplay_api_GetErrorString(err));
+            }
             // OVERLOAD CORRECTED
         }
     }
