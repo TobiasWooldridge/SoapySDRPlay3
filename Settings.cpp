@@ -1700,7 +1700,11 @@ void SoapySDRPlay::writeSetting(const std::string &key, const std::string &value
          chParams->rsp2TunerParams.biasTEnable = biasTen;
          if (streamActive)
          {
-            sdrplay_api_Update(device.dev, device.tuner, sdrplay_api_Update_Rsp2_BiasTControl, sdrplay_api_Update_Ext1_None);
+            sdrplay_api_ErrT err = sdrplay_api_Update(device.dev, device.tuner, sdrplay_api_Update_Rsp2_BiasTControl, sdrplay_api_Update_Ext1_None);
+            if (err != sdrplay_api_Success)
+            {
+               SoapySDR_logf(SOAPY_SDR_WARNING, "sdrplay_api_Update(Rsp2_BiasTControl) failed: %s", sdrplay_api_GetErrorString(err));
+            }
          }
       }
       else if (device.hwVer == SDRPLAY_RSPduo_ID)
@@ -1708,7 +1712,11 @@ void SoapySDRPlay::writeSetting(const std::string &key, const std::string &value
          chParams->rspDuoTunerParams.biasTEnable = biasTen;
          if (streamActive)
          {
-            sdrplay_api_Update(device.dev, device.tuner, sdrplay_api_Update_RspDuo_BiasTControl, sdrplay_api_Update_Ext1_None);
+            sdrplay_api_ErrT err = sdrplay_api_Update(device.dev, device.tuner, sdrplay_api_Update_RspDuo_BiasTControl, sdrplay_api_Update_Ext1_None);
+            if (err != sdrplay_api_Success)
+            {
+               SoapySDR_logf(SOAPY_SDR_WARNING, "sdrplay_api_Update(RspDuo_BiasTControl) failed: %s", sdrplay_api_GetErrorString(err));
+            }
          }
       }
       else if (device.hwVer == SDRPLAY_RSP1A_ID || device.hwVer == SDRPLAY_RSP1B_ID)
@@ -1716,7 +1724,11 @@ void SoapySDRPlay::writeSetting(const std::string &key, const std::string &value
          chParams->rsp1aTunerParams.biasTEnable = biasTen;
          if (streamActive)
          {
-            sdrplay_api_Update(device.dev, device.tuner, sdrplay_api_Update_Rsp1a_BiasTControl, sdrplay_api_Update_Ext1_None);
+            sdrplay_api_ErrT err = sdrplay_api_Update(device.dev, device.tuner, sdrplay_api_Update_Rsp1a_BiasTControl, sdrplay_api_Update_Ext1_None);
+            if (err != sdrplay_api_Success)
+            {
+               SoapySDR_logf(SOAPY_SDR_WARNING, "sdrplay_api_Update(Rsp1a_BiasTControl) failed: %s", sdrplay_api_GetErrorString(err));
+            }
          }
       }
       else if (device.hwVer == SDRPLAY_RSPdx_ID)
@@ -1724,7 +1736,11 @@ void SoapySDRPlay::writeSetting(const std::string &key, const std::string &value
          deviceParams->devParams->rspDxParams.biasTEnable = biasTen;
          if (streamActive)
          {
-            sdrplay_api_Update(device.dev, device.tuner, sdrplay_api_Update_None, sdrplay_api_Update_RspDx_BiasTControl);
+            sdrplay_api_ErrT err = sdrplay_api_Update(device.dev, device.tuner, sdrplay_api_Update_None, sdrplay_api_Update_RspDx_BiasTControl);
+            if (err != sdrplay_api_Success)
+            {
+               SoapySDR_logf(SOAPY_SDR_WARNING, "sdrplay_api_Update(RspDx_BiasTControl) failed: %s", sdrplay_api_GetErrorString(err));
+            }
          }
       }
       else if (device.hwVer == SDRPLAY_RSPdxR2_ID)
@@ -1732,7 +1748,11 @@ void SoapySDRPlay::writeSetting(const std::string &key, const std::string &value
          deviceParams->devParams->rspDxParams.biasTEnable = biasTen;
          if (streamActive)
          {
-            sdrplay_api_Update(device.dev, device.tuner, sdrplay_api_Update_None, sdrplay_api_Update_RspDx_BiasTControl);
+            sdrplay_api_ErrT err = sdrplay_api_Update(device.dev, device.tuner, sdrplay_api_Update_None, sdrplay_api_Update_RspDx_BiasTControl);
+            if (err != sdrplay_api_Success)
+            {
+               SoapySDR_logf(SOAPY_SDR_WARNING, "sdrplay_api_Update(RspDx_BiasTControl) failed: %s", sdrplay_api_GetErrorString(err));
+            }
          }
       }
    }
