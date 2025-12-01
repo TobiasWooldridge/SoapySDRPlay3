@@ -1637,7 +1637,11 @@ void SoapySDRPlay::writeSetting(const std::string &key, const std::string &value
       chParams->ctrlParams.dcOffset.DCenable = 1;
       if (streamActive)
       {
-         sdrplay_api_Update(device.dev, device.tuner, sdrplay_api_Update_Ctrl_DCoffsetIQimbalance, sdrplay_api_Update_Ext1_None);
+         sdrplay_api_ErrT err = sdrplay_api_Update(device.dev, device.tuner, sdrplay_api_Update_Ctrl_DCoffsetIQimbalance, sdrplay_api_Update_Ext1_None);
+         if (err != sdrplay_api_Success)
+         {
+            SoapySDR_logf(SOAPY_SDR_WARNING, "sdrplay_api_Update(Ctrl_DCoffsetIQimbalance) failed: %s", sdrplay_api_GetErrorString(err));
+         }
       }
    }
    else if (key == "agc_setpoint")
@@ -1662,7 +1666,11 @@ void SoapySDRPlay::writeSetting(const std::string &key, const std::string &value
          deviceParams->devParams->rsp2Params.extRefOutputEn = extRef;
          if (streamActive)
          {
-            sdrplay_api_Update(device.dev, device.tuner, sdrplay_api_Update_Rsp2_ExtRefControl, sdrplay_api_Update_Ext1_None);
+            sdrplay_api_ErrT err = sdrplay_api_Update(device.dev, device.tuner, sdrplay_api_Update_Rsp2_ExtRefControl, sdrplay_api_Update_Ext1_None);
+            if (err != sdrplay_api_Success)
+            {
+               SoapySDR_logf(SOAPY_SDR_WARNING, "sdrplay_api_Update(Rsp2_ExtRefControl) failed: %s", sdrplay_api_GetErrorString(err));
+            }
          }
       }
       if (device.hwVer == SDRPLAY_RSPduo_ID)
@@ -1673,7 +1681,11 @@ void SoapySDRPlay::writeSetting(const std::string &key, const std::string &value
            deviceParams->devParams->rspDuoParams.extRefOutputEn = extRef;
            if (streamActive)
            {
-             sdrplay_api_Update(device.dev, device.tuner, sdrplay_api_Update_RspDuo_ExtRefControl, sdrplay_api_Update_Ext1_None);
+             sdrplay_api_ErrT err = sdrplay_api_Update(device.dev, device.tuner, sdrplay_api_Update_RspDuo_ExtRefControl, sdrplay_api_Update_Ext1_None);
+             if (err != sdrplay_api_Success)
+             {
+                SoapySDR_logf(SOAPY_SDR_WARNING, "sdrplay_api_Update(RspDuo_ExtRefControl) failed: %s", sdrplay_api_GetErrorString(err));
+             }
            }
          }
       }
