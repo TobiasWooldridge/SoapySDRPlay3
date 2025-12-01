@@ -287,7 +287,11 @@ SoapySDR::Stream *SoapySDRPlay::setupStream(const int direction,
 
     // default is channel 0
     size_t channel = channels.size() == 0 ? 0 : channels.at(0);
-    SoapySDRPlayStream *sdrplay_stream = _streams[channel];
+    SoapySDRPlayStream *sdrplay_stream;
+    {
+        std::lock_guard<std::mutex> lock(_general_state_mutex);
+        sdrplay_stream = _streams[channel];
+    }
     if (sdrplay_stream == 0)
     {
         sdrplay_stream = new SoapySDRPlayStream(channel, numBuffers, bufferLength);
@@ -359,6 +363,10 @@ int SoapySDRPlay::activateStream(SoapySDR::Stream *stream,
 
     SoapySDRPlayStream *sdrplay_stream = reinterpret_cast<SoapySDRPlayStream *>(stream);
 
+    sdrplay_api_ErrT err;
+
+    std::lock_guard <std::mutex> lock(_general_state_mutex);
+
     sdrplay_stream->reset = true;
     sdrplay_stream->nElems = 0;
     _streams[sdrplay_stream->channel] = sdrplay_stream;
@@ -368,10 +376,6 @@ int SoapySDRPlay::activateStream(SoapySDR::Stream *stream,
     {
         return 0;
     }
-
-    sdrplay_api_ErrT err;
-
-    std::lock_guard <std::mutex> lock(_general_state_mutex);
 
     // Enable (= sdrplay_api_DbgLvl_Verbose) API calls tracing,
     // but only for debug purposes due to its performance impact.
@@ -434,10 +438,13 @@ int SoapySDRPlay::readStream(SoapySDR::Stream *stream,
     }
 
     SoapySDRPlayStream *sdrplay_stream = reinterpret_cast<SoapySDRPlayStream *>(stream);
-    if (_streams[sdrplay_stream->channel] == 0)
     {
-        //throw std::runtime_error("readStream stream not activated");
-        return SOAPY_SDR_NOT_SUPPORTED;
+        std::lock_guard<std::mutex> lock(_general_state_mutex);
+        if (_streams[sdrplay_stream->channel] == 0)
+        {
+            //throw std::runtime_error("readStream stream not activated");
+            return SOAPY_SDR_NOT_SUPPORTED;
+        }
     }
 
     // Serialize readStream operations on this stream
