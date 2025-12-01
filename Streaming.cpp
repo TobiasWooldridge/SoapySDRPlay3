@@ -355,8 +355,21 @@ void SoapySDRPlay::closeStream(SoapySDR::Stream *stream)
 
     if (deleteStream)
     {
-        // notify readStream()
-        sdrplay_stream->cond.notify_one();
+        // Wake up any threads waiting on this stream's condition variable.
+        // Use notify_all() to ensure all waiters wake up and see the stream is gone.
+        // We must acquire the stream's mutex to safely notify and then wait for
+        // any threads in readStream/acquireReadBuffer to exit before deleting.
+        {
+            std::lock_guard<std::mutex> streamLock(sdrplay_stream->mutex);
+            sdrplay_stream->cond.notify_all();
+        }
+        // Acquire readStreamMutex to ensure any thread in readStream() has exited.
+        // This is safe because we've already set _streams[i] = nullptr above,
+        // so new readStream() calls will return early, and existing ones will
+        // exit after seeing the stream is gone or timing out.
+        {
+            std::lock_guard<std::mutex> readLock(sdrplay_stream->readStreamMutex);
+        }
         delete sdrplay_stream;
     }
     if (activeStreams == 0)
