@@ -1766,7 +1766,11 @@ void SoapySDRPlay::writeSetting(const std::string &key, const std::string &value
          chParams->rsp2TunerParams.rfNotchEnable = notchEn;
          if (streamActive)
          {
-            sdrplay_api_Update(device.dev, device.tuner, sdrplay_api_Update_Rsp2_RfNotchControl, sdrplay_api_Update_Ext1_None);
+            sdrplay_api_ErrT err = sdrplay_api_Update(device.dev, device.tuner, sdrplay_api_Update_Rsp2_RfNotchControl, sdrplay_api_Update_Ext1_None);
+            if (err != sdrplay_api_Success)
+            {
+               SoapySDR_logf(SOAPY_SDR_WARNING, "sdrplay_api_Update(Rsp2_RfNotchControl) failed: %s", sdrplay_api_GetErrorString(err));
+            }
          }
       }
       else if (device.hwVer == SDRPLAY_RSPduo_ID)
@@ -1776,7 +1780,11 @@ void SoapySDRPlay::writeSetting(const std::string &key, const std::string &value
           chParams->rspDuoTunerParams.tuner1AmNotchEnable = notchEn;
           if (streamActive)
           {
-             sdrplay_api_Update(device.dev, device.tuner, sdrplay_api_Update_RspDuo_Tuner1AmNotchControl, sdrplay_api_Update_Ext1_None);
+             sdrplay_api_ErrT err = sdrplay_api_Update(device.dev, device.tuner, sdrplay_api_Update_RspDuo_Tuner1AmNotchControl, sdrplay_api_Update_Ext1_None);
+             if (err != sdrplay_api_Success)
+             {
+                SoapySDR_logf(SOAPY_SDR_WARNING, "sdrplay_api_Update(RspDuo_Tuner1AmNotchControl) failed: %s", sdrplay_api_GetErrorString(err));
+             }
           }
         }
         if (chParams->rspDuoTunerParams.tuner1AmPortSel == sdrplay_api_RspDuo_AMPORT_2)
@@ -1784,7 +1792,11 @@ void SoapySDRPlay::writeSetting(const std::string &key, const std::string &value
           chParams->rspDuoTunerParams.rfNotchEnable = notchEn;
           if (streamActive)
           {
-             sdrplay_api_Update(device.dev, device.tuner, sdrplay_api_Update_RspDuo_RfNotchControl, sdrplay_api_Update_Ext1_None);
+             sdrplay_api_ErrT err = sdrplay_api_Update(device.dev, device.tuner, sdrplay_api_Update_RspDuo_RfNotchControl, sdrplay_api_Update_Ext1_None);
+             if (err != sdrplay_api_Success)
+             {
+                SoapySDR_logf(SOAPY_SDR_WARNING, "sdrplay_api_Update(RspDuo_RfNotchControl) failed: %s", sdrplay_api_GetErrorString(err));
+             }
           }
         }
       }
@@ -1793,7 +1805,11 @@ void SoapySDRPlay::writeSetting(const std::string &key, const std::string &value
          deviceParams->devParams->rsp1aParams.rfNotchEnable = notchEn;
          if (streamActive)
          {
-            sdrplay_api_Update(device.dev, device.tuner, sdrplay_api_Update_Rsp1a_RfNotchControl, sdrplay_api_Update_Ext1_None);
+            sdrplay_api_ErrT err = sdrplay_api_Update(device.dev, device.tuner, sdrplay_api_Update_Rsp1a_RfNotchControl, sdrplay_api_Update_Ext1_None);
+            if (err != sdrplay_api_Success)
+            {
+               SoapySDR_logf(SOAPY_SDR_WARNING, "sdrplay_api_Update(Rsp1a_RfNotchControl) failed: %s", sdrplay_api_GetErrorString(err));
+            }
          }
       }
       else if (device.hwVer == SDRPLAY_RSPdx_ID)
@@ -1801,7 +1817,11 @@ void SoapySDRPlay::writeSetting(const std::string &key, const std::string &value
          deviceParams->devParams->rspDxParams.rfNotchEnable = notchEn;
          if (streamActive)
          {
-            sdrplay_api_Update(device.dev, device.tuner, sdrplay_api_Update_None, sdrplay_api_Update_RspDx_RfNotchControl);
+            sdrplay_api_ErrT err = sdrplay_api_Update(device.dev, device.tuner, sdrplay_api_Update_None, sdrplay_api_Update_RspDx_RfNotchControl);
+            if (err != sdrplay_api_Success)
+            {
+               SoapySDR_logf(SOAPY_SDR_WARNING, "sdrplay_api_Update(RspDx_RfNotchControl) failed: %s", sdrplay_api_GetErrorString(err));
+            }
          }
       }
       else if (device.hwVer == SDRPLAY_RSPdxR2_ID)
@@ -1809,7 +1829,11 @@ void SoapySDRPlay::writeSetting(const std::string &key, const std::string &value
          deviceParams->devParams->rspDxParams.rfNotchEnable = notchEn;
          if (streamActive)
          {
-            sdrplay_api_Update(device.dev, device.tuner, sdrplay_api_Update_None, sdrplay_api_Update_RspDx_RfNotchControl);
+            sdrplay_api_ErrT err = sdrplay_api_Update(device.dev, device.tuner, sdrplay_api_Update_None, sdrplay_api_Update_RspDx_RfNotchControl);
+            if (err != sdrplay_api_Success)
+            {
+               SoapySDR_logf(SOAPY_SDR_WARNING, "sdrplay_api_Update(RspDx_RfNotchControl) failed: %s", sdrplay_api_GetErrorString(err));
+            }
          }
       }
    }
