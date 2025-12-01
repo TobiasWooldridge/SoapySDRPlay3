@@ -506,6 +506,11 @@ int SoapySDRPlay::getDirectAccessBufferAddrs(SoapySDR::Stream *stream, const siz
 {
     SoapySDRPlayStream *sdrplay_stream = reinterpret_cast<SoapySDRPlayStream *>(stream);
     std::lock_guard <std::mutex> lockA(sdrplay_stream->mutex);
+    // validate handle is within bounds
+    if (handle >= sdrplay_stream->buffs.size())
+    {
+        return SOAPY_SDR_OVERFLOW;
+    }
     // always write to buffs[0] since each stream can have only one rx/channel
     buffs[0] = (void *)sdrplay_stream->buffs[handle].data();
     return 0;
@@ -575,6 +580,11 @@ void SoapySDRPlay::releaseReadBuffer(SoapySDR::Stream *stream, const size_t hand
 {
     SoapySDRPlayStream *sdrplay_stream = reinterpret_cast<SoapySDRPlayStream *>(stream);
     std::lock_guard <std::mutex> lockA(sdrplay_stream->mutex);
+    // validate handle is within bounds and count won't underflow
+    if (handle >= sdrplay_stream->buffs.size() || sdrplay_stream->count == 0)
+    {
+        return;
+    }
     sdrplay_stream->buffs[handle].clear();
     sdrplay_stream->count--;
 }
