@@ -54,6 +54,10 @@ public:
 #define DEFAULT_NUM_BUFFERS       (8)
 #define DEFAULT_ELEMS_PER_SAMPLE  (2)
 
+// Ensure numBuffers is a power of 2 for efficient ring buffer operations
+static_assert((DEFAULT_NUM_BUFFERS & (DEFAULT_NUM_BUFFERS - 1)) == 0,
+              "DEFAULT_NUM_BUFFERS must be a power of 2");
+
 std::set<std::string> &SoapySDRPlay_getClaimedSerials(void);
 
 class SoapySDRPlay: public SoapySDR::Device

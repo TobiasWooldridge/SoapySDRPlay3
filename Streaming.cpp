@@ -118,7 +118,8 @@ void SoapySDRPlay::rx_callback(short *xi, short *xq,
     if ((stream->buffs[stream->tail].size() + spaceReqd) >= (bufferLength / decFactor))
     {
        // increment the tail pointer and buffer count
-       stream->tail = (stream->tail + 1) % numBuffers;
+       // Use bitwise AND instead of modulo for power-of-2 numBuffers (faster)
+       stream->tail = (stream->tail + 1) & (numBuffers - 1);
        stream->count++;
 
        auto &buff = stream->buffs[stream->tail];
@@ -654,7 +655,8 @@ int SoapySDRPlay::acquireReadBuffer(SoapySDR::Stream *stream,
     buffs[0] = static_cast<void *>(sdrplay_stream->buffs[handle].data());
     flags = 0;
 
-    sdrplay_stream->head = (sdrplay_stream->head + 1) % numBuffers;
+    // Use bitwise AND instead of modulo for power-of-2 numBuffers (faster)
+    sdrplay_stream->head = (sdrplay_stream->head + 1) & (numBuffers - 1);
 
     // return number available
     return static_cast<int>(sdrplay_stream->buffs[handle].size() / (elementsPerSample * shortsPerWord));
