@@ -1902,7 +1902,11 @@ void SoapySDRPlay::writeSetting(const std::string &key, const std::string &value
          SoapySDR_logf(SOAPY_SDR_INFO, "--> rspDxParams.hdrEnable=%d", deviceParams->devParams->rspDxParams.hdrEnable);
          if (streamActive)
          {
-            sdrplay_api_Update(device.dev, device.tuner, sdrplay_api_Update_None, sdrplay_api_Update_RspDx_HdrEnable);
+            sdrplay_api_ErrT err = sdrplay_api_Update(device.dev, device.tuner, sdrplay_api_Update_None, sdrplay_api_Update_RspDx_HdrEnable);
+            if (err != sdrplay_api_Success)
+            {
+               SoapySDR_logf(SOAPY_SDR_WARNING, "sdrplay_api_Update(RspDx_HdrEnable) failed: %s", sdrplay_api_GetErrorString(err));
+            }
          }
       }
       else if (device.hwVer == SDRPLAY_RSPdxR2_ID)
@@ -1911,7 +1915,11 @@ void SoapySDRPlay::writeSetting(const std::string &key, const std::string &value
          SoapySDR_logf(SOAPY_SDR_INFO, "--> rspDxParams.hdrEnable=%d", deviceParams->devParams->rspDxParams.hdrEnable);
          if (streamActive)
          {
-            sdrplay_api_Update(device.dev, device.tuner, sdrplay_api_Update_None, sdrplay_api_Update_RspDx_HdrEnable);
+            sdrplay_api_ErrT err = sdrplay_api_Update(device.dev, device.tuner, sdrplay_api_Update_None, sdrplay_api_Update_RspDx_HdrEnable);
+            if (err != sdrplay_api_Success)
+            {
+               SoapySDR_logf(SOAPY_SDR_WARNING, "sdrplay_api_Update(RspDx_HdrEnable) failed: %s", sdrplay_api_GetErrorString(err));
+            }
          }
       }
    }
