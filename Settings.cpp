@@ -1958,15 +1958,12 @@ std::string SoapySDRPlay::readSetting(const std::string &key) const
     }
     else if (key == "extref_ctrl")
     {
+       if (!deviceParams->devParams) {
+          return "unknown";
+       }
        unsigned char extRef = 0;
        if (device.hwVer == SDRPLAY_RSP2_ID) extRef = deviceParams->devParams->rsp2Params.extRefOutputEn;
-      if (device.hwVer == SDRPLAY_RSPduo_ID) {
-         // can't get extRefOutputEn for RSPduo slaves
-         if (!deviceParams->devParams) {
-            return "unknown";
-         }
-         extRef = deviceParams->devParams->rspDuoParams.extRefOutputEn;
-       }
+       else if (device.hwVer == SDRPLAY_RSPduo_ID) extRef = deviceParams->devParams->rspDuoParams.extRefOutputEn;
        if (extRef == 0) return "false";
        else             return "true";
     }
@@ -1976,8 +1973,10 @@ std::string SoapySDRPlay::readSetting(const std::string &key) const
        if (device.hwVer == SDRPLAY_RSP2_ID) biasTen = chParams->rsp2TunerParams.biasTEnable;
        else if (device.hwVer == SDRPLAY_RSPduo_ID) biasTen = chParams->rspDuoTunerParams.biasTEnable;
        else if (device.hwVer == SDRPLAY_RSP1A_ID || device.hwVer == SDRPLAY_RSP1B_ID) biasTen = chParams->rsp1aTunerParams.biasTEnable;
-       else if (device.hwVer == SDRPLAY_RSPdx_ID) biasTen = deviceParams->devParams->rspDxParams.biasTEnable;
-       else if (device.hwVer == SDRPLAY_RSPdxR2_ID) biasTen = deviceParams->devParams->rspDxParams.biasTEnable;
+       else if (device.hwVer == SDRPLAY_RSPdx_ID || device.hwVer == SDRPLAY_RSPdxR2_ID) {
+          if (!deviceParams->devParams) return "unknown";
+          biasTen = deviceParams->devParams->rspDxParams.biasTEnable;
+       }
        if (biasTen == 0) return "false";
        else              return "true";
     }
@@ -1996,9 +1995,14 @@ std::string SoapySDRPlay::readSetting(const std::string &key) const
              notchEn = chParams->rspDuoTunerParams.rfNotchEnable;
           }
        }
-       else if (device.hwVer == SDRPLAY_RSP1A_ID || device.hwVer == SDRPLAY_RSP1B_ID) notchEn = deviceParams->devParams->rsp1aParams.rfNotchEnable;
-       else if (device.hwVer == SDRPLAY_RSPdx_ID) notchEn = deviceParams->devParams->rspDxParams.rfNotchEnable;
-       else if (device.hwVer == SDRPLAY_RSPdxR2_ID) notchEn = deviceParams->devParams->rspDxParams.rfNotchEnable;
+       else if (device.hwVer == SDRPLAY_RSP1A_ID || device.hwVer == SDRPLAY_RSP1B_ID) {
+          if (!deviceParams->devParams) return "unknown";
+          notchEn = deviceParams->devParams->rsp1aParams.rfNotchEnable;
+       }
+       else if (device.hwVer == SDRPLAY_RSPdx_ID || device.hwVer == SDRPLAY_RSPdxR2_ID) {
+          if (!deviceParams->devParams) return "unknown";
+          notchEn = deviceParams->devParams->rspDxParams.rfNotchEnable;
+       }
        if (notchEn == 0) return "false";
        else              return "true";
     }
@@ -2006,17 +2010,24 @@ std::string SoapySDRPlay::readSetting(const std::string &key) const
     {
        unsigned char dabNotchEn = 0;
        if (device.hwVer == SDRPLAY_RSPduo_ID) dabNotchEn = chParams->rspDuoTunerParams.rfDabNotchEnable;
-       else if (device.hwVer == SDRPLAY_RSP1A_ID || device.hwVer == SDRPLAY_RSP1B_ID) dabNotchEn = deviceParams->devParams->rsp1aParams.rfDabNotchEnable;
-       else if (device.hwVer == SDRPLAY_RSPdx_ID) dabNotchEn = deviceParams->devParams->rspDxParams.rfDabNotchEnable;
-       else if (device.hwVer == SDRPLAY_RSPdxR2_ID) dabNotchEn = deviceParams->devParams->rspDxParams.rfDabNotchEnable;
+       else if (device.hwVer == SDRPLAY_RSP1A_ID || device.hwVer == SDRPLAY_RSP1B_ID) {
+          if (!deviceParams->devParams) return "unknown";
+          dabNotchEn = deviceParams->devParams->rsp1aParams.rfDabNotchEnable;
+       }
+       else if (device.hwVer == SDRPLAY_RSPdx_ID || device.hwVer == SDRPLAY_RSPdxR2_ID) {
+          if (!deviceParams->devParams) return "unknown";
+          dabNotchEn = deviceParams->devParams->rspDxParams.rfDabNotchEnable;
+       }
        if (dabNotchEn == 0) return "false";
        else                 return "true";
     }
     else if (key == "hdr_ctrl")
     {
        unsigned char hdrEn = 0;
-       if (device.hwVer == SDRPLAY_RSPdx_ID) hdrEn = deviceParams->devParams->rspDxParams.hdrEnable;
-       if (device.hwVer == SDRPLAY_RSPdxR2_ID) hdrEn = deviceParams->devParams->rspDxParams.hdrEnable;
+       if (device.hwVer == SDRPLAY_RSPdx_ID || device.hwVer == SDRPLAY_RSPdxR2_ID) {
+          if (!deviceParams->devParams) return "unknown";
+          hdrEn = deviceParams->devParams->rspDxParams.hdrEnable;
+       }
        if (hdrEn == 0) return "false";
        else            return "true";
     }
