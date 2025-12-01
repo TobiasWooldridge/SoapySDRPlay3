@@ -161,12 +161,15 @@ void SoapySDRPlay::rx_callback(short *xi, short *xq,
     }
     else
     {
+       // Use multiplication by reciprocal instead of division for performance
+       // (multiplication is faster than division in the hot path)
+       constexpr float SCALE = 1.0f / 32768.0f;
        auto *dptr = reinterpret_cast<float *>(buff.data());
        dptr += ((buff.size() - spaceReqd) / shortsPerWord);
        for (i = 0; i < numSamples; i++)
        {
-          *dptr++ = static_cast<float>(xi[i]) / 32768.0f;
-          *dptr++ = static_cast<float>(xq[i]) / 32768.0f;
+          *dptr++ = static_cast<float>(xi[i]) * SCALE;
+          *dptr++ = static_cast<float>(xq[i]) * SCALE;
        }
     }
 
