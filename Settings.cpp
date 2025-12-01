@@ -894,67 +894,52 @@ double SoapySDRPlay::getSampleRate(const int direction, const size_t channel) co
 
 std::vector<double> SoapySDRPlay::listSampleRates(const int direction, const size_t channel) const
 {
-    std::vector<double> output_sample_rates;
+    // Use static cached vectors to avoid allocations on every call
+    static const std::vector<double> RSPDUO_DUAL_RATES = {
+        62500, 125000, 250000, 500000, 1000000, 2000000
+    };
+    static const std::vector<double> STANDARD_RATES = {
+        62500, 96000, 125000, 192000, 250000, 384000, 500000, 768000,
+        1000000, 2000000, 2048000, 3000000, 4000000, 5000000,
+        6000000, 7000000, 8000000, 9000000, 10000000
+    };
 
     if (device.hwVer == SDRPLAY_RSPduo_ID && device.rspDuoMode != sdrplay_api_RspDuoMode_Single_Tuner)
     {
-        output_sample_rates.push_back(62500);
-        output_sample_rates.push_back(125000);
-        output_sample_rates.push_back(250000);
-        output_sample_rates.push_back(500000);
-        output_sample_rates.push_back(1000000);
-        output_sample_rates.push_back(2000000);
-        return output_sample_rates;
+        return RSPDUO_DUAL_RATES;
     }
-
-    output_sample_rates.push_back(62500);
-    output_sample_rates.push_back(96000);
-    output_sample_rates.push_back(125000);
-    output_sample_rates.push_back(192000);
-    output_sample_rates.push_back(250000);
-    output_sample_rates.push_back(384000);
-    output_sample_rates.push_back(500000);
-    output_sample_rates.push_back(768000);
-    output_sample_rates.push_back(1000000);
-    output_sample_rates.push_back(2000000);
-    output_sample_rates.push_back(2048000);
-    output_sample_rates.push_back(3000000);
-    output_sample_rates.push_back(4000000);
-    output_sample_rates.push_back(5000000);
-    output_sample_rates.push_back(6000000);
-    output_sample_rates.push_back(7000000);
-    output_sample_rates.push_back(8000000);
-    output_sample_rates.push_back(9000000);
-    output_sample_rates.push_back(10000000);
-    return output_sample_rates;
+    return STANDARD_RATES;
 }
 
 SoapySDR::RangeList SoapySDRPlay::getSampleRateRange(const int direction, const size_t channel) const
 {
-    SoapySDR::RangeList output_sample_rates;
+    // Use static cached range lists to avoid allocations on every call
+    static const SoapySDR::RangeList RSPDUO_DUAL_RANGES = {
+        SoapySDR::Range(62500, 62500),
+        SoapySDR::Range(125000, 125000),
+        SoapySDR::Range(250000, 250000),
+        SoapySDR::Range(500000, 500000),
+        SoapySDR::Range(1000000, 1000000),
+        SoapySDR::Range(2000000, 2000000)
+    };
+    static const SoapySDR::RangeList STANDARD_RANGES = {
+        SoapySDR::Range(62500, 62500),
+        SoapySDR::Range(96000, 96000),
+        SoapySDR::Range(125000, 125000),
+        SoapySDR::Range(192000, 192000),
+        SoapySDR::Range(250000, 250000),
+        SoapySDR::Range(384000, 384000),
+        SoapySDR::Range(500000, 500000),
+        SoapySDR::Range(768000, 768000),
+        SoapySDR::Range(1000000, 1000000),
+        SoapySDR::Range(2000000, 10660000)
+    };
 
     if (device.hwVer == SDRPLAY_RSPduo_ID && device.rspDuoMode != sdrplay_api_RspDuoMode_Single_Tuner)
     {
-        output_sample_rates.push_back(SoapySDR::Range(62500, 62500));
-        output_sample_rates.push_back(SoapySDR::Range(125000, 125000));
-        output_sample_rates.push_back(SoapySDR::Range(250000, 250000));
-        output_sample_rates.push_back(SoapySDR::Range(500000, 500000));
-        output_sample_rates.push_back(SoapySDR::Range(1000000, 1000000));
-        output_sample_rates.push_back(SoapySDR::Range(2000000, 2000000));
-        return output_sample_rates;
+        return RSPDUO_DUAL_RANGES;
     }
-
-    output_sample_rates.push_back(SoapySDR::Range(62500, 62500));
-    output_sample_rates.push_back(SoapySDR::Range(96000, 96000));
-    output_sample_rates.push_back(SoapySDR::Range(125000, 125000));
-    output_sample_rates.push_back(SoapySDR::Range(192000, 192000));
-    output_sample_rates.push_back(SoapySDR::Range(250000, 250000));
-    output_sample_rates.push_back(SoapySDR::Range(384000, 384000));
-    output_sample_rates.push_back(SoapySDR::Range(500000, 500000));
-    output_sample_rates.push_back(SoapySDR::Range(768000, 768000));
-    output_sample_rates.push_back(SoapySDR::Range(1000000, 1000000));
-    output_sample_rates.push_back(SoapySDR::Range(2000000, 10660000));
-    return output_sample_rates;
+    return STANDARD_RANGES;
 }
 
 double SoapySDRPlay::getInputSampleRateAndDecimation(uint32_t output_sample_rate, unsigned int *decM, unsigned int *decEnable, sdrplay_api_If_kHzT *ifType) const
