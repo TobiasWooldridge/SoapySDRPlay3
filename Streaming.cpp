@@ -472,6 +472,12 @@ int SoapySDRPlay::readStream(SoapySDR::Stream *stream,
 
     size_t returnedElems = std::min(sdrplay_stream->nElems.load(), numElems);
 
+    // Defensive null check for currentBuff
+    if (sdrplay_stream->currentBuff == nullptr)
+    {
+        return SOAPY_SDR_STREAM_ERROR;
+    }
+
     // copy into user's buff - always write to buffs[0] since each stream
     // can have only one rx/channel
     if (useShort)
