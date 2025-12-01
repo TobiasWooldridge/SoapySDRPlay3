@@ -205,6 +205,10 @@ void SoapySDRPlay::ev_callback(sdrplay_api_EventT eventId, sdrplay_api_TunerSele
         // the application can be closed gracefully
         SoapySDR_log(SOAPY_SDR_ERROR, "Device has been removed. Stopping.");
         device_unavailable = true;
+        // Wake up any waiting threads so they can exit gracefully
+        update_cv.notify_all();
+        if (_streams[0]) _streams[0]->cond.notify_all();
+        if (_streams[1]) _streams[1]->cond.notify_all();
     }
     else if (eventId == sdrplay_api_RspDuoModeChange)
     {
@@ -214,6 +218,10 @@ void SoapySDRPlay::ev_callback(sdrplay_api_EventT eventId, sdrplay_api_TunerSele
             // so that the application can be closed gracefully
             SoapySDR_log(SOAPY_SDR_ERROR, "Master stream has been removed. Stopping.");
             device_unavailable = true;
+            // Wake up any waiting threads so they can exit gracefully
+            update_cv.notify_all();
+            if (_streams[0]) _streams[0]->cond.notify_all();
+            if (_streams[1]) _streams[1]->cond.notify_all();
         }
     }
 }
