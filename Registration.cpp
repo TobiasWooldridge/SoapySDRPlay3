@@ -27,19 +27,12 @@
 #include "SoapySDRPlay.hpp"
 #include <SoapySDR/Registry.hpp>
 
-#if !defined(_M_X64) && !defined(_M_IX86)
-#define sprintf_s(buffer, buffer_size, stringbuffer, ...) (sprintf(buffer, stringbuffer, __VA_ARGS__))
-#endif
-
 static std::map<std::string, SoapySDR::Kwargs> _cachedResults;
 
 static std::vector<SoapySDR::Kwargs> findSDRPlay(const SoapySDR::Kwargs &args)
 {
    std::vector<SoapySDR::Kwargs> results;
    unsigned int nDevs = 0;
-   char lblstr[128];
-
-   std::string baseLabel = "SDRplay Dev";
 
    // list devices by API
    SoapySDRPlay::sdrplay_api::get_instance();
@@ -86,8 +79,7 @@ static std::vector<SoapySDR::Kwargs> findSDRPlay(const SoapySDR::Kwargs &args)
       }
       if (rspDevs[i].hwVer != SDRPLAY_RSPduo_ID)
       {
-         sprintf_s(lblstr, sizeof(lblstr), "SDRplay Dev%ld %s %s", results.size(), modelName.c_str(), rspDevs[i].SerNo);
-         dev["label"] = lblstr;
+         dev["label"] = "SDRplay Dev" + std::to_string(results.size()) + " " + modelName + " " + rspDevs[i].SerNo;
          results.push_back(dev);
          _cachedResults[dev["serial"]] = dev;
          continue;
@@ -101,8 +93,7 @@ static std::vector<SoapySDR::Kwargs> findSDRPlay(const SoapySDR::Kwargs &args)
          const bool modeMatch = args.count("mode") == 0 or args.at("mode") == dev["mode"];
          if (modeMatch)
          {
-            sprintf_s(lblstr, sizeof(lblstr), "SDRplay Dev%ld %s %s - Single Tuner", results.size(), modelName.c_str(), rspDevs[i].SerNo);
-            dev["label"] = lblstr;
+            dev["label"] = "SDRplay Dev" + std::to_string(results.size()) + " " + modelName + " " + rspDevs[i].SerNo + " - Single Tuner";
             results.push_back(dev);
             _cachedResults[dev["serial"] + "@" + dev["mode"]] = dev;
          }
@@ -113,8 +104,7 @@ static std::vector<SoapySDR::Kwargs> findSDRPlay(const SoapySDR::Kwargs &args)
          const bool modeMatch = args.count("mode") == 0 or args.at("mode") == dev["mode"];
          if (modeMatch)
          {
-            sprintf_s(lblstr, sizeof(lblstr), "SDRplay Dev%ld %s %s - Dual Tuner", results.size(), modelName.c_str(), rspDevs[i].SerNo);
-            dev["label"] = lblstr;
+            dev["label"] = "SDRplay Dev" + std::to_string(results.size()) + " " + modelName + " " + rspDevs[i].SerNo + " - Dual Tuner";
             results.push_back(dev);
             _cachedResults[dev["serial"] + "@" + dev["mode"]] = dev;
          }
@@ -125,8 +115,7 @@ static std::vector<SoapySDR::Kwargs> findSDRPlay(const SoapySDR::Kwargs &args)
          const bool modeMatch = args.count("mode") == 0 or args.at("mode") == dev["mode"];
          if (modeMatch)
          {
-            sprintf_s(lblstr, sizeof(lblstr), "SDRplay Dev%ld %s %s - Master", results.size(), modelName.c_str(), rspDevs[i].SerNo);
-            dev["label"] = lblstr;
+            dev["label"] = "SDRplay Dev" + std::to_string(results.size()) + " " + modelName + " " + rspDevs[i].SerNo + " - Master";
             results.push_back(dev);
             _cachedResults[dev["serial"] + "@" + dev["mode"]] = dev;
          }
@@ -137,8 +126,7 @@ static std::vector<SoapySDR::Kwargs> findSDRPlay(const SoapySDR::Kwargs &args)
          const bool modeMatch = args.count("mode") == 0 or args.at("mode") == dev["mode"];
          if (modeMatch)
          {
-            sprintf_s(lblstr, sizeof(lblstr), "SDRplay Dev%ld %s %s - Master (RSPduo sample rate=8Mhz)", results.size(), modelName.c_str(), rspDevs[i].SerNo);
-            dev["label"] = lblstr;
+            dev["label"] = "SDRplay Dev" + std::to_string(results.size()) + " " + modelName + " " + rspDevs[i].SerNo + " - Master (RSPduo sample rate=8Mhz)";
             results.push_back(dev);
             _cachedResults[dev["serial"] + "@" + dev["mode"]] = dev;
          }
@@ -149,8 +137,7 @@ static std::vector<SoapySDR::Kwargs> findSDRPlay(const SoapySDR::Kwargs &args)
          const bool modeMatch = args.count("mode") == 0 or args.at("mode") == dev["mode"];
          if (modeMatch)
          {
-            sprintf_s(lblstr, sizeof(lblstr), "SDRplay Dev%ld %s %s - Slave", results.size(), modelName.c_str(), rspDevs[i].SerNo);
-            dev["label"] = lblstr;
+            dev["label"] = "SDRplay Dev" + std::to_string(results.size()) + " " + modelName + " " + rspDevs[i].SerNo + " - Slave";
             results.push_back(dev);
             _cachedResults[dev["serial"] + "@" + dev["mode"]] = dev;
          }
