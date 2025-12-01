@@ -268,6 +268,13 @@ private:
 
     double getInputSampleRateAndDecimation(uint32_t output_sample_rate, unsigned int *decM, unsigned int *decEnable, sdrplay_api_If_kHzT *ifType) const;
 
+    // Helper to serialize sdrplay_api_Update calls and optionally wait for callback
+    // Returns true on success, false if update was skipped due to contention
+    bool executeApiUpdate(sdrplay_api_ReasonForUpdateT reason,
+                          sdrplay_api_ReasonForUpdateExtension1T reasonExt,
+                          std::atomic<int> *changeFlag,
+                          const char *updateName);
+
     static sdrplay_api_Bw_MHzT getBwEnumForRate(double output_sample_rate);
 
     static double getBwValueFromEnum(sdrplay_api_Bw_MHzT bwEnum);
@@ -334,6 +341,11 @@ private:
     // Condition variable for parameter update notifications from callback
     std::mutex update_mutex;
     std::condition_variable update_cv;
+
+    // Mutex to serialize sdrplay_api_Update() calls
+    // This prevents rapid successive API calls from overwhelming the hardware
+    // Uses timed_mutex to allow try_lock_for() with timeout
+    std::timed_mutex api_update_mutex;
 
 public:
 

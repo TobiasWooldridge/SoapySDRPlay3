@@ -546,11 +546,8 @@ void SoapySDRPlay::setGainMode(const int direction, const size_t channel, const 
         chParams->ctrlParams.agc.enable = agc_control;
         if (streamActive)
         {
-            sdrplay_api_ErrT err = sdrplay_api_Update(device.dev, device.tuner, sdrplay_api_Update_Ctrl_Agc, sdrplay_api_Update_Ext1_None);
-            if (err != sdrplay_api_Success)
-            {
-                SoapySDR_logf(SOAPY_SDR_WARNING, "sdrplay_api_Update(Ctrl_Agc) failed: %s", sdrplay_api_GetErrorString(err));
-            }
+            executeApiUpdate(sdrplay_api_Update_Ctrl_Agc, sdrplay_api_Update_Ext1_None,
+                             nullptr, "Ctrl_Agc");
         }
     }
 }
@@ -593,19 +590,8 @@ void SoapySDRPlay::setGain(const int direction, const size_t channel, const std:
    }
    if ((doUpdate == true) && (streamActive))
    {
-      gr_changed = 0;
-      sdrplay_api_ErrT err = sdrplay_api_Update(device.dev, device.tuner, sdrplay_api_Update_Tuner_Gr, sdrplay_api_Update_Ext1_None);
-      if (err != sdrplay_api_Success)
-      {
-         SoapySDR_logf(SOAPY_SDR_WARNING, "sdrplay_api_Update(Tuner_Gr) Error: %s", sdrplay_api_GetErrorString(err));
-         return;
-      }
-      std::unique_lock<std::mutex> lk(update_mutex);
-      if (!update_cv.wait_for(lk, std::chrono::milliseconds(updateTimeout),
-                              [this]{ return gr_changed != 0; }))
-      {
-         SoapySDR_log(SOAPY_SDR_WARNING, "Gain reduction update timeout.");
-      }
+      executeApiUpdate(sdrplay_api_Update_Tuner_Gr, sdrplay_api_Update_Ext1_None,
+                       &gr_changed, "Tuner_Gr");
    }
 }
 
@@ -699,19 +685,8 @@ void SoapySDRPlay::setFrequency(const int direction,
             chParams->tunerParams.rfFreq.rfHz = (uint32_t)frequency;
             if (streamActive)
             {
-               rf_changed = 0;
-               sdrplay_api_ErrT err = sdrplay_api_Update(device.dev, device.tuner, sdrplay_api_Update_Tuner_Frf, sdrplay_api_Update_Ext1_None);
-               if (err != sdrplay_api_Success)
-               {
-                  SoapySDR_logf(SOAPY_SDR_WARNING, "sdrplay_api_Update(Tuner_FrF) Error: %s", sdrplay_api_GetErrorString(err));
-                  return;
-               }
-               std::unique_lock<std::mutex> lk(update_mutex);
-               if (!update_cv.wait_for(lk, std::chrono::milliseconds(updateTimeout),
-                                       [this]{ return rf_changed != 0; }))
-               {
-                  SoapySDR_log(SOAPY_SDR_WARNING, "RF center frequency update timeout.");
-               }
+               executeApiUpdate(sdrplay_api_Update_Tuner_Frf, sdrplay_api_Update_Ext1_None,
+                                &rf_changed, "Tuner_Frf");
             }
          }
       }
@@ -722,11 +697,8 @@ void SoapySDRPlay::setFrequency(const int direction,
          deviceParams->devParams->ppm = frequency;
          if (streamActive)
          {
-            sdrplay_api_ErrT err = sdrplay_api_Update(device.dev, device.tuner, sdrplay_api_Update_Dev_Ppm, sdrplay_api_Update_Ext1_None);
-            if (err != sdrplay_api_Success)
-            {
-               SoapySDR_logf(SOAPY_SDR_WARNING, "sdrplay_api_Update(Dev_Ppm) failed: %s", sdrplay_api_GetErrorString(err));
-            }
+            executeApiUpdate(sdrplay_api_Update_Dev_Ppm, sdrplay_api_Update_Ext1_None,
+                             nullptr, "Dev_Ppm");
          }
       }
    }
@@ -863,22 +835,8 @@ void SoapySDRPlay::setSampleRate(const int direction, const size_t channel, cons
              // beware that when the fs change crosses the boundary between
              // 2,685,312 and 2,685,313 the rx_callbacks stop for some
              // reason
-             fs_changed = 0;
-             sdrplay_api_ErrT err = sdrplay_api_Update(device.dev, device.tuner, reasonForUpdate, sdrplay_api_Update_Ext1_None);
-             if (err != sdrplay_api_Success)
-             {
-                 SoapySDR_logf(SOAPY_SDR_WARNING, "sdrplay_api_Update(%08x) Error: %s", reasonForUpdate, sdrplay_api_GetErrorString(err));
-                 return;
-             }
-             if (waitForUpdate)
-             {
-                std::unique_lock<std::mutex> lk(update_mutex);
-                if (!update_cv.wait_for(lk, std::chrono::milliseconds(updateTimeout),
-                                        [this]{ return fs_changed != 0; }))
-                {
-                   SoapySDR_log(SOAPY_SDR_WARNING, "Sample rate update timeout.");
-                }
-             }
+             executeApiUpdate(reasonForUpdate, sdrplay_api_Update_Ext1_None,
+                              waitForUpdate ? &fs_changed : nullptr, "SampleRate");
           }
        }
     }
@@ -1057,11 +1015,8 @@ void SoapySDRPlay::setBandwidth(const int direction, const size_t channel, const
          chParams->tunerParams.bwType = bwType;
          if (streamActive)
          {
-            sdrplay_api_ErrT err = sdrplay_api_Update(device.dev, device.tuner, sdrplay_api_Update_Tuner_BwType, sdrplay_api_Update_Ext1_None);
-            if (err != sdrplay_api_Success)
-            {
-               SoapySDR_logf(SOAPY_SDR_WARNING, "sdrplay_api_Update(Tuner_BwType) failed: %s", sdrplay_api_GetErrorString(err));
-            }
+            executeApiUpdate(sdrplay_api_Update_Tuner_BwType, sdrplay_api_Update_Ext1_None,
+                             nullptr, "Tuner_BwType");
          }
       }
    }
@@ -1106,6 +1061,50 @@ SoapySDR::RangeList SoapySDRPlay::getBandwidthRange(const int direction, const s
      results.push_back(SoapySDR::Range(bw, bw));
    }
    return results;
+}
+
+// Helper to serialize sdrplay_api_Update calls and prevent rapid API calls from crashing
+// Uses try_lock with timeout to avoid blocking indefinitely when updates come rapidly
+// If changeFlag is non-null, waits for callback confirmation after update
+bool SoapySDRPlay::executeApiUpdate(sdrplay_api_ReasonForUpdateT reason,
+                                     sdrplay_api_ReasonForUpdateExtension1T reasonExt,
+                                     std::atomic<int> *changeFlag,
+                                     const char *updateName)
+{
+    // Try to acquire the API update mutex with a short timeout
+    // If another update is in progress, skip this one to avoid queueing up
+    std::unique_lock<std::timed_mutex> apiLock(api_update_mutex, std::defer_lock);
+    if (!apiLock.try_lock_for(std::chrono::milliseconds(50)))
+    {
+        SoapySDR_logf(SOAPY_SDR_DEBUG, "Skipping %s update - another update in progress", updateName);
+        return false;
+    }
+
+    // Reset the change flag before update if we're waiting for confirmation
+    if (changeFlag != nullptr)
+    {
+        *changeFlag = 0;
+    }
+
+    sdrplay_api_ErrT err = sdrplay_api_Update(device.dev, device.tuner, reason, reasonExt);
+    if (err != sdrplay_api_Success)
+    {
+        SoapySDR_logf(SOAPY_SDR_WARNING, "sdrplay_api_Update(%s) failed: %s", updateName, sdrplay_api_GetErrorString(err));
+        return false;
+    }
+
+    // Wait for callback confirmation if a change flag was provided
+    if (changeFlag != nullptr)
+    {
+        std::unique_lock<std::mutex> lk(update_mutex);
+        if (!update_cv.wait_for(lk, std::chrono::milliseconds(updateTimeout),
+                                [changeFlag]{ return *changeFlag != 0; }))
+        {
+            SoapySDR_logf(SOAPY_SDR_WARNING, "%s update timeout.", updateName);
+        }
+    }
+
+    return true;
 }
 
 
@@ -1613,19 +1612,8 @@ void SoapySDRPlay::writeSetting(const std::string &key, const std::string &value
       chParams->tunerParams.gain.LNAstate = static_cast<unsigned char>(stoul(value));
       if (streamActive)
       {
-         gr_changed = 0;
-         sdrplay_api_ErrT err = sdrplay_api_Update(device.dev, device.tuner, sdrplay_api_Update_Tuner_Gr, sdrplay_api_Update_Ext1_None);
-         if (err != sdrplay_api_Success)
-         {
-            SoapySDR_logf(SOAPY_SDR_WARNING, "sdrplay_api_Update(Tuner_Gr) Error: %s", sdrplay_api_GetErrorString(err));
-            return;
-         }
-         std::unique_lock<std::mutex> lk(update_mutex);
-         if (!update_cv.wait_for(lk, std::chrono::milliseconds(updateTimeout),
-                                 [this]{ return gr_changed != 0; }))
-         {
-            SoapySDR_log(SOAPY_SDR_WARNING, "Gain reduction update timeout.");
-         }
+         executeApiUpdate(sdrplay_api_Update_Tuner_Gr, sdrplay_api_Update_Ext1_None,
+                          &gr_changed, "Tuner_Gr");
       }
    }
    else
