@@ -41,6 +41,15 @@
 
 #include <sdrplay_api.h>
 
+// RAII guard for SDRplay API lock to prevent lock leaks on exceptions
+class SdrplayApiLockGuard {
+public:
+    SdrplayApiLockGuard() { sdrplay_api_LockDeviceApi(); }
+    ~SdrplayApiLockGuard() { sdrplay_api_UnlockDeviceApi(); }
+    SdrplayApiLockGuard(const SdrplayApiLockGuard&) = delete;
+    SdrplayApiLockGuard& operator=(const SdrplayApiLockGuard&) = delete;
+};
+
 #define DEFAULT_BUFFER_LENGTH     (65536)
 #define DEFAULT_NUM_BUFFERS       (8)
 #define DEFAULT_ELEMS_PER_SAMPLE  (2)

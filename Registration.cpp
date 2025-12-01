@@ -43,12 +43,13 @@ static std::vector<SoapySDR::Kwargs> findSDRPlay(const SoapySDR::Kwargs &args)
 
    // list devices by API
    SoapySDRPlay::sdrplay_api::get_instance();
-   sdrplay_api_LockDeviceApi();
-   sdrplay_api_DeviceT rspDevs[SDRPLAY_MAX_DEVICES];
-   sdrplay_api_GetDevices(&rspDevs[0], &nDevs, SDRPLAY_MAX_DEVICES);
-
-   for (unsigned int i = 0; i < nDevs; i++)
    {
+      SdrplayApiLockGuard apiLock;
+      sdrplay_api_DeviceT rspDevs[SDRPLAY_MAX_DEVICES];
+      sdrplay_api_GetDevices(&rspDevs[0], &nDevs, SDRPLAY_MAX_DEVICES);
+
+      for (unsigned int i = 0; i < nDevs; i++)
+      {
       if (not rspDevs[i].valid) continue;
       SoapySDR::Kwargs dev;
       dev["serial"] = rspDevs[i].SerNo;
@@ -154,9 +155,8 @@ static std::vector<SoapySDR::Kwargs> findSDRPlay(const SoapySDR::Kwargs &args)
             _cachedResults[dev["serial"] + "@" + dev["mode"]] = dev;
          }
       }
-   }
-
-   sdrplay_api_UnlockDeviceApi();
+      }
+   } // RAII guard releases API lock here
 
    // fill in the cached results for claimed handles
    for (const auto &serial : SoapySDRPlay_getClaimedSerials())
