@@ -80,7 +80,7 @@ SoapySDRPlay::SoapySDRPlay(const SoapySDR::Kwargs &args)
     chParams->ctrlParams.agc.setPoint_dBfs = -30;
 
     // process additional device string arguments
-    for (std::pair<std::string, std::string> arg : args) {
+    for (const auto &arg : args) {
         // ignore 'driver', 'label', 'mode', 'serial', and 'soapy'
         if (arg.first == "driver" || arg.first == "label" ||
             arg.first == "mode" || arg.first == "serial" ||
