@@ -461,6 +461,16 @@ SoapySDR::ArgInfoList SoapySDRPlay::getSettingInfo(void) const
        HDRArg.description = "RSPdx HDR Control";
        HDRArg.type = SoapySDR::ArgInfo::BOOL;
        setArgs.push_back(HDRArg);
+
+       SoapySDR::ArgInfo HDRBwArg;
+       HDRBwArg.key = "hdr_bw";
+       HDRBwArg.value = "1.700";
+       HDRBwArg.name = "HDR Bandwidth";
+       HDRBwArg.description = "HDR Mode Bandwidth in MHz";
+       HDRBwArg.type = SoapySDR::ArgInfo::STRING;
+       HDRBwArg.options = {"0.200", "0.500", "1.200", "1.700"};
+       HDRBwArg.optionNames = {"200 kHz", "500 kHz", "1.2 MHz", "1.7 MHz"};
+       setArgs.push_back(HDRBwArg);
     }
     else if (device.hwVer == SDRPLAY_RSPdxR2_ID) // RSPdx-R2
     {
@@ -495,6 +505,16 @@ SoapySDR::ArgInfoList SoapySDRPlay::getSettingInfo(void) const
        HDRArg.description = "RSPdx HDR Control";
        HDRArg.type = SoapySDR::ArgInfo::BOOL;
        setArgs.push_back(HDRArg);
+
+       SoapySDR::ArgInfo HDRBwArg;
+       HDRBwArg.key = "hdr_bw";
+       HDRBwArg.value = "1.700";
+       HDRBwArg.name = "HDR Bandwidth";
+       HDRBwArg.description = "HDR Mode Bandwidth in MHz";
+       HDRBwArg.type = SoapySDR::ArgInfo::STRING;
+       HDRBwArg.options = {"0.200", "0.500", "1.200", "1.700"};
+       HDRBwArg.optionNames = {"200 kHz", "500 kHz", "1.2 MHz", "1.7 MHz"};
+       setArgs.push_back(HDRBwArg);
     }
 
     return setArgs;
@@ -809,6 +829,28 @@ void SoapySDRPlay::writeSetting(const std::string &key, const std::string &value
          }
       }
    }
+   else if (key == "hdr_bw")
+   {
+      sdrplay_api_RspDx_HdrModeBwT hdrBw = sdrplay_api_RspDx_HDRMODE_BW_1_700;
+      if (value == "0.200") hdrBw = sdrplay_api_RspDx_HDRMODE_BW_0_200;
+      else if (value == "0.500") hdrBw = sdrplay_api_RspDx_HDRMODE_BW_0_500;
+      else if (value == "1.200") hdrBw = sdrplay_api_RspDx_HDRMODE_BW_1_200;
+      // else default 1.700
+
+      if (device.hwVer == SDRPLAY_RSPdx_ID || device.hwVer == SDRPLAY_RSPdxR2_ID)
+      {
+         chParams->rspDxTunerParams.hdrBw = hdrBw;
+         SoapySDR_logf(SOAPY_SDR_INFO, "--> rspDxTunerParams.hdrBw=%d", chParams->rspDxTunerParams.hdrBw);
+         if (streamActive)
+         {
+            sdrplay_api_ErrT err = sdrplay_api_Update(device.dev, device.tuner, sdrplay_api_Update_None, sdrplay_api_Update_RspDx_HdrBw);
+            if (err != sdrplay_api_Success)
+            {
+               SoapySDR_logf(SOAPY_SDR_WARNING, "sdrplay_api_Update(RspDx_HdrBw) failed: %s", sdrplay_api_GetErrorString(err));
+            }
+         }
+      }
+   }
 }
 
 std::string SoapySDRPlay::readSetting(const std::string &key) const
@@ -905,6 +947,19 @@ std::string SoapySDRPlay::readSetting(const std::string &key) const
        }
        if (hdrEn == 0) return "false";
        else            return "true";
+    }
+    else if (key == "hdr_bw")
+    {
+       if (device.hwVer == SDRPLAY_RSPdx_ID || device.hwVer == SDRPLAY_RSPdxR2_ID) {
+          switch (chParams->rspDxTunerParams.hdrBw)
+          {
+             case sdrplay_api_RspDx_HDRMODE_BW_0_200: return "0.200";
+             case sdrplay_api_RspDx_HDRMODE_BW_0_500: return "0.500";
+             case sdrplay_api_RspDx_HDRMODE_BW_1_200: return "1.200";
+             default: return "1.700";
+          }
+       }
+       return "1.700";
     }
 
     // SoapySDR_logf(SOAPY_SDR_WARNING, "Unknown setting '%s'", key.c_str());
