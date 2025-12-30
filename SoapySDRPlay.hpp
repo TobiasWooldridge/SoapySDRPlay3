@@ -173,6 +173,13 @@ public:
 
     SoapySDR::Range getGainRange(const int direction, const size_t channel, const std::string &name) const;
 
+    // Overall gain methods (distributes gain across LNA and IF stages)
+    void setGain(const int direction, const size_t channel, const double value);
+
+    double getGain(const int direction, const size_t channel) const;
+
+    SoapySDR::Range getGainRange(const int direction, const size_t channel) const;
+
     /*******************************************************************
      * Frequency API
      ******************************************************************/
@@ -336,6 +343,11 @@ private:
     std::atomic<int> gr_changed;
     std::atomic<int> rf_changed;
     std::atomic<int> fs_changed;
+
+    // Track desired gain values to coordinate LNA and IF gain settings
+    // This prevents conflicts when element gains are set independently
+    int desired_lna_state = 4;   // Default LNAstate (mid-range for RSPdx)
+    int desired_if_gr = 40;      // Default IFGR (mid-range)
     // event callback reporting device is unavailable
     std::atomic<bool> device_unavailable;
     const int updateTimeout = 500;   // 500ms timeout for updates
