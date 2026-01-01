@@ -779,10 +779,15 @@ int SoapySDRPlay::acquireReadBuffer(SoapySDR::Stream *stream,
     }
 
     // wait for a buffer to become available
+    // Use predicate form to handle spurious wakeups correctly
     if (sdrplay_stream->count == 0)
     {
-        sdrplay_stream->cond.wait_for(lock, std::chrono::microseconds(timeoutUs));
-        if (sdrplay_stream->count == 0)
+        bool hasData = sdrplay_stream->cond.wait_for(
+            lock,
+            std::chrono::microseconds(timeoutUs),
+            [&sdrplay_stream, this]{ return sdrplay_stream->count > 0 || device_unavailable.load(); }
+        );
+        if (!hasData)
         {
            return SOAPY_SDR_TIMEOUT;
         }
