@@ -25,6 +25,7 @@
  */
 
 #include "SoapySDRPlay.hpp"
+#include <exception>
 
 #if defined(_M_X64) || defined(_M_IX86)
 #define strcasecmp _stricmp
@@ -103,7 +104,18 @@ SoapySDRPlay::~SoapySDRPlay(void)
     SoapySDRPlay_getClaimedSerials().erase(cacheKey);
     std::lock_guard <std::mutex> lock(_general_state_mutex);
 
-    releaseDevice();
+    try
+    {
+        releaseDevice();
+    }
+    catch (const std::exception &ex)
+    {
+        SoapySDR_logf(SOAPY_SDR_ERROR, "releaseDevice() failed during destruction: %s", ex.what());
+    }
+    catch (...)
+    {
+        SoapySDR_log(SOAPY_SDR_ERROR, "releaseDevice() failed during destruction");
+    }
 
     _streams[0] = nullptr;
     _streams[1] = nullptr;
