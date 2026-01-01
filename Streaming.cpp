@@ -61,7 +61,7 @@ static void _rx_callback_A(short *xi, short *xq, sdrplay_api_StreamCbParamsT *pa
     SoapySDRPlay::SoapySDRPlayStream *stream = nullptr;
     std::unique_lock<std::mutex> streamLock;
     {
-        std::lock_guard<std::mutex> lock(self->_general_state_mutex);
+        std::lock_guard<std::mutex> lock(self->_streams_mutex);
         stream = self->_streams[0];
         if (stream == nullptr) {
             return;
@@ -78,7 +78,7 @@ static void _rx_callback_B(short *xi, short *xq, sdrplay_api_StreamCbParamsT *pa
     SoapySDRPlay::SoapySDRPlayStream *stream = nullptr;
     std::unique_lock<std::mutex> streamLock;
     {
-        std::lock_guard<std::mutex> lock(self->_general_state_mutex);
+        std::lock_guard<std::mutex> lock(self->_streams_mutex);
         stream = self->_streams[1];
         if (stream == nullptr) {
             return;
@@ -283,7 +283,7 @@ void SoapySDRPlay::ev_callback(sdrplay_api_EventT eventId, sdrplay_api_TunerSele
         update_cv.notify_all();
         // Safely access stream pointers under lock to prevent use-after-free
         {
-            std::lock_guard<std::mutex> lock(_general_state_mutex);
+            std::lock_guard<std::mutex> lock(_streams_mutex);
             if (_streams[0]) _streams[0]->cond.notify_all();
             if (_streams[1]) _streams[1]->cond.notify_all();
         }
@@ -300,7 +300,7 @@ void SoapySDRPlay::ev_callback(sdrplay_api_EventT eventId, sdrplay_api_TunerSele
             update_cv.notify_all();
             // Safely access stream pointers under lock to prevent use-after-free
             {
-                std::lock_guard<std::mutex> lock(_general_state_mutex);
+                std::lock_guard<std::mutex> lock(_streams_mutex);
                 if (_streams[0]) _streams[0]->cond.notify_all();
                 if (_streams[1]) _streams[1]->cond.notify_all();
             }
@@ -390,7 +390,7 @@ SoapySDR::Stream *SoapySDRPlay::setupStream(const int direction,
     size_t channel = channels.size() == 0 ? 0 : channels.at(0);
     SoapySDRPlayStream *sdrplay_stream;
     {
-        std::lock_guard<std::mutex> lock(_general_state_mutex);
+        std::lock_guard<std::mutex> lock(_streams_mutex);
         sdrplay_stream = _streams[channel];
     }
     if (sdrplay_stream == nullptr)
@@ -408,6 +408,7 @@ void SoapySDRPlay::closeStream(SoapySDR::Stream *stream)
 
     bool deleteStream = false;
     int activeStreams = 0;
+    std::unique_lock<std::mutex> streamsLock(_streams_mutex);
     for (int i = 0; i < 2; ++i)
     {
         if (_streams[i] == sdrplay_stream)
@@ -426,12 +427,12 @@ void SoapySDRPlay::closeStream(SoapySDR::Stream *stream)
     {
         // Wake up any threads waiting on this stream's condition variable.
         // Use notify_all() to ensure all waiters wake up and see the stream is gone.
-        // We must acquire the stream's mutex to safely notify and then wait for
-        // any threads in readStream/acquireReadBuffer to exit before deleting.
-        {
-            std::lock_guard<std::mutex> streamLock(sdrplay_stream->mutex);
-            sdrplay_stream->cond.notify_all();
-        }
+        // Hold the stream mutex while clearing and notify to avoid concurrent callbacks.
+        std::unique_lock<std::mutex> streamLock(sdrplay_stream->mutex);
+        streamsLock.unlock();
+        sdrplay_stream->cond.notify_all();
+        streamLock.unlock();
+
         // Acquire readStreamMutex to ensure any thread in readStream() has exited.
         // This is safe because we've already set _streams[i] = nullptr above,
         // so new readStream() calls will return early, and existing ones will
@@ -440,6 +441,10 @@ void SoapySDRPlay::closeStream(SoapySDR::Stream *stream)
             std::lock_guard<std::mutex> readLock(sdrplay_stream->readStreamMutex);
         }
         delete sdrplay_stream;
+    }
+    else
+    {
+        streamsLock.unlock();
     }
     if (activeStreams == 0)
     {
@@ -481,10 +486,13 @@ int SoapySDRPlay::activateStream(SoapySDR::Stream *stream,
 
     std::lock_guard <std::mutex> lock(_general_state_mutex);
 
-    sdrplay_stream->reset = true;
-    sdrplay_stream->nElems = 0;
-    _streams[sdrplay_stream->channel] = sdrplay_stream;
-    _streamsRefCount[sdrplay_stream->channel]++;
+    {
+        std::lock_guard<std::mutex> streamsLock(_streams_mutex);
+        sdrplay_stream->reset = true;
+        sdrplay_stream->nElems = 0;
+        _streams[sdrplay_stream->channel] = sdrplay_stream;
+        _streamsRefCount[sdrplay_stream->channel]++;
+    }
 
     if (streamActive)
     {
@@ -515,10 +523,13 @@ int SoapySDRPlay::activateStream(SoapySDR::Stream *stream,
     {
         SoapySDR_logf(SOAPY_SDR_ERROR, "error in activateStream() - Init() failed: %s", sdrplay_api_GetErrorString(err));
         // Clean up stream state that was set before Init() was called
-        _streamsRefCount[sdrplay_stream->channel]--;
-        if (_streamsRefCount[sdrplay_stream->channel] == 0)
         {
-            _streams[sdrplay_stream->channel] = nullptr;
+            std::lock_guard<std::mutex> streamsLock(_streams_mutex);
+            _streamsRefCount[sdrplay_stream->channel]--;
+            if (_streamsRefCount[sdrplay_stream->channel] == 0)
+            {
+                _streams[sdrplay_stream->channel] = nullptr;
+            }
         }
         return SOAPY_SDR_NOT_SUPPORTED;
     }
@@ -564,7 +575,7 @@ int SoapySDRPlay::readStream(SoapySDR::Stream *stream,
 
     SoapySDRPlayStream *sdrplay_stream = reinterpret_cast<SoapySDRPlayStream *>(stream);
     {
-        std::lock_guard<std::mutex> lock(_general_state_mutex);
+        std::lock_guard<std::mutex> lock(_streams_mutex);
         if (_streams[sdrplay_stream->channel] == nullptr)
         {
             //throw std::runtime_error("readStream stream not activated");
