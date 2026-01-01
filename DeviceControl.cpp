@@ -46,6 +46,33 @@ std::set<std::string> &SoapySDRPlay_getClaimedSerials(void)
  * Constructor / Destructor
  ******************************************************************/
 
+// RAII guard to ensure device is released if constructor throws after selectDevice()
+class DeviceSelectionGuard
+{
+public:
+    explicit DeviceSelectionGuard(SoapySDRPlay* owner) : owner_(owner), committed_(false) {}
+    ~DeviceSelectionGuard()
+    {
+        if (!committed_)
+        {
+            try
+            {
+                owner_->releaseDevice();
+            }
+            catch (...)
+            {
+                // Ignore cleanup errors during exception unwinding
+            }
+        }
+    }
+    void commit() { committed_ = true; }
+    DeviceSelectionGuard(const DeviceSelectionGuard&) = delete;
+    DeviceSelectionGuard& operator=(const DeviceSelectionGuard&) = delete;
+private:
+    SoapySDRPlay* owner_;
+    bool committed_;
+};
+
 SoapySDRPlay::SoapySDRPlay(const SoapySDR::Kwargs &args)
 {
     if (args.count("serial") == 0) throw std::runtime_error("no available RSP devices found");
@@ -75,6 +102,10 @@ SoapySDRPlay::SoapySDRPlay(const SoapySDR::Kwargs &args)
     }
 
     selectDevice(serial, mode, antenna);
+
+    // RAII guard ensures device is released if anything below throws
+    DeviceSelectionGuard guard(this);
+
     if (!antenna.empty())
     {
         setAntenna(SOAPY_SDR_RX, 0, antenna);
@@ -107,6 +138,9 @@ SoapySDRPlay::SoapySDRPlay(const SoapySDR::Kwargs &args)
     }
 
     SoapySDRPlay_getClaimedSerials().insert(cacheKey);
+
+    // Construction succeeded - don't release device on guard destruction
+    guard.commit();
 }
 
 SoapySDRPlay::~SoapySDRPlay(void)

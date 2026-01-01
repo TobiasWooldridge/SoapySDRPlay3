@@ -332,6 +332,9 @@ public:
 
 private:
 
+    // Friend class for exception-safe device cleanup in constructor
+    friend class DeviceSelectionGuard;
+
     /*******************************************************************
      * Internal functions
      ******************************************************************/
