@@ -442,27 +442,50 @@ void SoapySDRPlay::closeStream(SoapySDR::Stream *stream)
         {
             std::lock_guard<std::mutex> readLock(sdrplay_stream->readStreamMutex);
         }
+
+        // CRITICAL: Call Uninit BEFORE deleting stream to prevent use-after-free.
+        // The SDRplay API callbacks must be stopped before we free the stream memory,
+        // otherwise a callback in flight could access freed memory.
+        if (activeStreams == 0)
+        {
+            while (true)
+            {
+                sdrplay_api_ErrT err;
+                SdrplayApiLockGuard apiLock(SDRPLAY_API_TIMEOUT_MS);
+                err = sdrplay_api_Uninit(device.dev);
+                if (err != sdrplay_api_StopPending)
+                {
+                    break;
+                }
+                SoapySDR_logf(SOAPY_SDR_WARNING, "Please close RSPduo slave device first. Trying again in %d seconds", uninitRetryDelay);
+                std::this_thread::sleep_for(std::chrono::seconds(uninitRetryDelay));
+            }
+            streamActive = false;
+        }
+
         delete sdrplay_stream;
     }
     else
     {
         streamsLock.unlock();
-    }
-    if (activeStreams == 0)
-    {
-        while (true)
+
+        // Handle case where we didn't delete a stream but all streams are now inactive
+        if (activeStreams == 0)
         {
-            sdrplay_api_ErrT err;
-            SdrplayApiLockGuard apiLock(SDRPLAY_API_TIMEOUT_MS);
-            err = sdrplay_api_Uninit(device.dev);
-            if (err != sdrplay_api_StopPending)
+            while (true)
             {
-                break;
+                sdrplay_api_ErrT err;
+                SdrplayApiLockGuard apiLock(SDRPLAY_API_TIMEOUT_MS);
+                err = sdrplay_api_Uninit(device.dev);
+                if (err != sdrplay_api_StopPending)
+                {
+                    break;
+                }
+                SoapySDR_logf(SOAPY_SDR_WARNING, "Please close RSPduo slave device first. Trying again in %d seconds", uninitRetryDelay);
+                std::this_thread::sleep_for(std::chrono::seconds(uninitRetryDelay));
             }
-            SoapySDR_logf(SOAPY_SDR_WARNING, "Please close RSPduo slave device first. Trying again in %d seconds", uninitRetryDelay);
-            std::this_thread::sleep_for(std::chrono::seconds(uninitRetryDelay));
+            streamActive = false;
         }
-        streamActive = false;
     }
 }
 
