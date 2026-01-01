@@ -82,20 +82,38 @@ IF(SHOW_SERIAL_NUMBER_IN_MESSAGES)
     ADD_DEFINITIONS( -DSHOW_SERIAL_NUMBER_IN_MESSAGES )
 ENDIF()
 
+set(SDRPLAY_SOURCES
+    SoapySDRPlay.hpp
+    Registration.cpp
+    sdrplay_api.cpp
+    DeviceControl.cpp
+    Identification.cpp
+    Antenna.cpp
+    Gain.cpp
+    Frequency.cpp
+    SampleRate.cpp
+    SettingsAPI.cpp
+    Streaming.cpp
+)
+
+# Optional: Build unit tests (logic-only, no SDRplay hardware required)
+option(ENABLE_TESTS "Build unit tests" OFF)
+if(ENABLE_TESTS)
+    enable_testing()
+    add_executable(sdrplay_unit_tests
+        tests/test_main.cpp
+        ${SDRPLAY_SOURCES}
+    )
+    target_compile_definitions(sdrplay_unit_tests PRIVATE SOAPYSDRPLAY_ENABLE_TESTS=1)
+    target_include_directories(sdrplay_unit_tests PRIVATE ${SoapySDR_INCLUDE_DIRS})
+    target_link_libraries(sdrplay_unit_tests PRIVATE ${LIBSDRPLAY_LIBRARIES} ${SoapySDR_LIBRARIES})
+    add_test(NAME sdrplay_unit_tests COMMAND sdrplay_unit_tests)
+endif()
+
 SOAPY_SDR_MODULE_UTIL(
     TARGET sdrPlaySupport
     SOURCES
-        SoapySDRPlay.hpp
-        Registration.cpp
-        sdrplay_api.cpp
-        DeviceControl.cpp
-        Identification.cpp
-        Antenna.cpp
-        Gain.cpp
-        Frequency.cpp
-        SampleRate.cpp
-        SettingsAPI.cpp
-        Streaming.cpp
+        ${SDRPLAY_SOURCES}
     LIBRARIES
         ${LIBSDRPLAY_LIBRARIES}
 )
@@ -114,4 +132,3 @@ configure_file(
     "${CMAKE_CURRENT_SOURCE_DIR}/cmake/cmake_uninstall.cmake.in"
     "${CMAKE_CURRENT_BINARY_DIR}/cmake_uninstall.cmake"
     IMMEDIATE @ONLY)
-

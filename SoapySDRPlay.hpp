@@ -287,6 +287,18 @@ public:
 
     static std::string RSPDuoModetoString(sdrplay_api_RspDuoModeT rspDuoMode);
 
+#ifdef SOAPYSDRPLAY_ENABLE_TESTS
+    static sdrplay_api_Bw_MHzT test_getBwEnumForRate(double output_sample_rate)
+    {
+        return getBwEnumForRate(output_sample_rate);
+    }
+
+    static double test_getBwValueFromEnum(sdrplay_api_Bw_MHzT bwEnum)
+    {
+        return getBwValueFromEnum(bwEnum);
+    }
+#endif
+
 private:
 
     /*******************************************************************

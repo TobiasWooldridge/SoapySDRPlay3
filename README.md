@@ -9,6 +9,20 @@
 * SDRplay API - download (and install) SDRplay API from - https://www.sdrplay.com/downloads - NOTE: the current version of this module requires SDRplay API V3.15 or later
 * SoapySDR - https://github.com/pothosware/SoapySDR/wiki
 
+## Notable enhancements in this repo
+
+* Hardware/API support updates: SDRplay API v3.14/v3.15, RSP1B, RSPdx-R2, HDR mode + HDR bandwidth controls
+* RSPduo handling: mode-specific device selection, tuner/antenna switching safeguards, master/slave coordination
+* Gain/bandwidth controls: overall gain API (LNA/IFGR distribution), RF gain range fixes, AGC set point handling, expanded sample rates/ranges
+* Streaming stability/performance: safer teardown, deadlock/race fixes, buffer alignment, ring buffer hot-path optimizations, update serialization
+* Build/debug options: USB bulk mode option, serial-in-log option, release optimization flags, uninstall target, improved logging/troubleshooting
+
+## Testing
+
+* Unit tests cover deterministic helpers (enum/string mappings, bandwidth mapping, stream buffer defaults)
+* Enable with `-DENABLE_TESTS=ON` and run `ctest --test-dir build`
+* Hardware/driver behavior still requires integration testing with SDRplay devices
+
 ## Troubleshooting
 
 This section contains some useful information for troubleshhoting
@@ -73,4 +87,3 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
-
