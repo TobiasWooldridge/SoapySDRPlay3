@@ -2,12 +2,13 @@
 
 ## Documentation
 
-* https://github.com/pothosware/SoapySDRPlay/wiki
+* https://github.com/TobiasWooldridge/SoapySDRPlay3/wiki
 
 ## Dependencies
 
 * SDRplay API - download (and install) SDRplay API from - https://www.sdrplay.com/downloads - NOTE: the current version of this module requires SDRplay API V3.15 or later
-* SoapySDR - https://github.com/pothosware/SoapySDR/wiki
+* SoapySDR - https://github.com/TobiasWooldridge/SoapySDR (fork with antenna persistence API and other enhancements)
+  * Upstream: https://github.com/pothosware/SoapySDR
 
 ## Notable enhancements in this repo
 
