@@ -193,6 +193,11 @@ public:
 
     std::string getAntenna(const int direction, const size_t channel) const;
 
+    void setAntennaPersistent(const int direction, const size_t channel,
+                              const std::string &name, const bool persistent = true);
+
+    bool getAntennaPersistent(const int direction, const size_t channel) const;
+
     /*******************************************************************
      * Frontend corrections API
      ******************************************************************/
@@ -424,6 +429,11 @@ private:
     // Condition variable for parameter update notifications from callback
     std::mutex update_mutex;
     std::condition_variable update_cv;
+
+    // Antenna persistence (SoapySDR fork API)
+    // When enabled, antenna setting is re-applied after activateStream()
+    bool antennaPersistentEnabled[2] = {false, false};
+    std::string persistentAntennaName[2];
 
     // Mutex to serialize sdrplay_api_Update() calls
     // This prevents rapid successive API calls from overwhelming the hardware

@@ -599,3 +599,40 @@ std::string SoapySDRPlay::getAntenna(const int direction, const size_t channel) 
 
     return "RX";
 }
+
+void SoapySDRPlay::setAntennaPersistent(const int direction, const size_t channel,
+                                        const std::string &name, const bool persistent)
+{
+    if (direction != SOAPY_SDR_RX || channel > 1)
+    {
+        return;
+    }
+
+    // Store persistence settings
+    {
+        std::lock_guard<std::mutex> lock(_general_state_mutex);
+        antennaPersistentEnabled[channel] = persistent;
+        if (persistent)
+        {
+            persistentAntennaName[channel] = name;
+        }
+        else
+        {
+            persistentAntennaName[channel].clear();
+        }
+    }
+
+    // Apply the antenna setting immediately
+    setAntenna(direction, channel, name);
+}
+
+bool SoapySDRPlay::getAntennaPersistent(const int direction, const size_t channel) const
+{
+    if (direction != SOAPY_SDR_RX || channel > 1)
+    {
+        return false;
+    }
+
+    std::lock_guard<std::mutex> lock(_general_state_mutex);
+    return antennaPersistentEnabled[channel];
+}

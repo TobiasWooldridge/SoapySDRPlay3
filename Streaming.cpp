@@ -510,7 +510,7 @@ int SoapySDRPlay::activateStream(SoapySDR::Stream *stream,
 
     sdrplay_api_ErrT err;
 
-    std::lock_guard <std::mutex> lock(_general_state_mutex);
+    std::unique_lock<std::mutex> lock(_general_state_mutex);
 
     {
         std::lock_guard<std::mutex> streamsLock(_streams_mutex);
@@ -576,6 +576,30 @@ int SoapySDRPlay::activateStream(SoapySDR::Stream *stream,
 
     // Notify any threads waiting in readStream() that the stream is now active
     update_cv.notify_all();
+
+    // Re-apply persistent antenna settings after stream activation
+    // (some hardware may reset antenna during Init)
+    bool shouldReapply[2] = {false, false};
+    std::string antennaToApply[2];
+    for (size_t ch = 0; ch < 2; ch++)
+    {
+        if (antennaPersistentEnabled[ch] && !persistentAntennaName[ch].empty())
+        {
+            shouldReapply[ch] = true;
+            antennaToApply[ch] = persistentAntennaName[ch];
+        }
+    }
+
+    // Release lock before calling setAntenna (it takes the same lock)
+    lock.unlock();
+
+    for (size_t ch = 0; ch < 2; ch++)
+    {
+        if (shouldReapply[ch])
+        {
+            setAntenna(SOAPY_SDR_RX, ch, antennaToApply[ch]);
+        }
+    }
 
     return 0;
 }
