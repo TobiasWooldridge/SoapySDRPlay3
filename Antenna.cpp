@@ -489,6 +489,18 @@ void SoapySDRPlay::setAntenna(const int direction, const size_t channel, const s
                     }
                     chParams = device.tuner == sdrplay_api_Tuner_B ?
                                deviceParams->rxChannelB : deviceParams->rxChannelA;
+
+                    // Re-apply gain settings (lost during tuner swap - SDR++ workaround)
+                    chParams->tunerParams.gain.LNAstate = desired_lna_state;
+                    chParams->tunerParams.gain.gRdB = desired_if_gr;
+                    sdrplay_api_ErrT gainErr = updateLocked(device.dev, device.tuner,
+                                                            sdrplay_api_Update_Tuner_Gr,
+                                                            sdrplay_api_Update_Ext1_None);
+                    if (gainErr != sdrplay_api_Success)
+                    {
+                        SoapySDR_logf(SOAPY_SDR_WARNING, "Failed to re-apply gains after tuner swap: %s",
+                                      sdrplay_api_GetErrorString(gainErr));
+                    }
                 }
                 else if (device.rspDuoMode == sdrplay_api_RspDuoMode_Master)
                 {
