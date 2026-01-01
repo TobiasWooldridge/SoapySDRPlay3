@@ -563,6 +563,12 @@ int SoapySDRPlay::activateStream(SoapySDR::Stream *stream,
                 _streams[sdrplay_stream->channel] = nullptr;
             }
         }
+        // Reset stream state so retry attempts start clean
+        {
+            std::lock_guard<std::mutex> streamLock(sdrplay_stream->mutex);
+            sdrplay_stream->reset = false;
+            sdrplay_stream->nElems = 0;
+        }
         return SOAPY_SDR_NOT_SUPPORTED;
     }
 
