@@ -111,6 +111,9 @@ void SoapySDRPlay::rx_callback(short *xi, short *xq,
         return;
     }
 
+    // Track callback activity for stale callback detection
+    stream->lastCallbackTicks.fetch_add(1, std::memory_order_relaxed);
+
     bool notify = false;
     if (gr_changed == 0 && params->grChanged != 0)
     {
@@ -298,20 +301,44 @@ void SoapySDRPlay::ev_callback(sdrplay_api_EventT eventId, sdrplay_api_TunerSele
     }
     else if (eventId == sdrplay_api_RspDuoModeChange)
     {
-        if (params->rspDuoModeParams.modeChangeType == sdrplay_api_MasterDllDisappeared)
+        sdrplay_api_RspDuoModeCbEventIdT modeChangeType = params->rspDuoModeParams.modeChangeType;
+
+        // Log all RSPduo mode change events for diagnostics
+        switch (modeChangeType)
         {
-            // Notify readStream() that the master stream has been removed
-            // so that the application can be closed gracefully
-            SoapySDR_log(SOAPY_SDR_ERROR, "Master stream has been removed. Stopping.");
-            device_unavailable = true;
-            // Wake up any waiting threads so they can exit gracefully
-            update_cv.notify_all();
-            // Safely access stream pointers under lock to prevent use-after-free
-            {
-                std::lock_guard<std::mutex> lock(_streams_mutex);
-                if (_streams[0]) _streams[0]->cond.notify_all();
-                if (_streams[1]) _streams[1]->cond.notify_all();
-            }
+            case sdrplay_api_MasterInitialised:
+                SoapySDR_log(SOAPY_SDR_INFO, "RSPduo: Master initialised");
+                break;
+            case sdrplay_api_SlaveAttached:
+                SoapySDR_log(SOAPY_SDR_INFO, "RSPduo: Slave attached");
+                break;
+            case sdrplay_api_SlaveDetached:
+                SoapySDR_log(SOAPY_SDR_INFO, "RSPduo: Slave detached");
+                break;
+            case sdrplay_api_SlaveInitialised:
+                SoapySDR_log(SOAPY_SDR_INFO, "RSPduo: Slave initialised");
+                break;
+            case sdrplay_api_SlaveUninitialised:
+                SoapySDR_log(SOAPY_SDR_INFO, "RSPduo: Slave uninitialised");
+                break;
+            case sdrplay_api_MasterDllDisappeared:
+                // Critical: Master stream has been removed - must stop gracefully
+                SoapySDR_log(SOAPY_SDR_ERROR, "RSPduo: Master stream has disappeared. Stopping.");
+                device_unavailable = true;
+                update_cv.notify_all();
+                {
+                    std::lock_guard<std::mutex> lock(_streams_mutex);
+                    if (_streams[0]) _streams[0]->cond.notify_all();
+                    if (_streams[1]) _streams[1]->cond.notify_all();
+                }
+                break;
+            case sdrplay_api_SlaveDllDisappeared:
+                // Slave stream has been removed - log but continue (master can survive)
+                SoapySDR_log(SOAPY_SDR_WARNING, "RSPduo: Slave stream has disappeared");
+                break;
+            default:
+                SoapySDR_logf(SOAPY_SDR_WARNING, "RSPduo: Unknown mode change event (%d)", static_cast<int>(modeChangeType));
+                break;
         }
     }
 }
@@ -812,6 +839,9 @@ int SoapySDRPlay::acquireReadBuffer(SoapySDR::Stream *stream,
     // Use predicate form to handle spurious wakeups correctly
     if (sdrplay_stream->count == 0)
     {
+        // Track callback activity to detect if callbacks stop firing
+        uint64_t ticksBefore = sdrplay_stream->lastCallbackTicks.load(std::memory_order_relaxed);
+
         bool hasData = sdrplay_stream->cond.wait_for(
             lock,
             std::chrono::microseconds(timeoutUs),
@@ -819,7 +849,13 @@ int SoapySDRPlay::acquireReadBuffer(SoapySDR::Stream *stream,
         );
         if (!hasData)
         {
-           return SOAPY_SDR_TIMEOUT;
+            // Check if callbacks have stopped firing (stale callback detection)
+            uint64_t ticksAfter = sdrplay_stream->lastCallbackTicks.load(std::memory_order_relaxed);
+            if (ticksAfter == ticksBefore && streamActive.load())
+            {
+                SoapySDR_log(SOAPY_SDR_WARNING, "No callbacks received during timeout period - stream may be stale");
+            }
+            return SOAPY_SDR_TIMEOUT;
         }
     }
 

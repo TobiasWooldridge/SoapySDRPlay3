@@ -475,6 +475,9 @@ public:
         // Mutex for serializing readStream() operations
         // (separate from buffer mutex to avoid deadlock)
         std::mutex readStreamMutex;
+
+        // Callback activity tracking - detects if callbacks stop firing
+        std::atomic<uint64_t> lastCallbackTicks{0};
     };
 
     SoapySDRPlayStream *_streams[2];
