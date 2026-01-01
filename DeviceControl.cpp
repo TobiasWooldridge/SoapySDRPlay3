@@ -33,6 +33,17 @@
 #include <strings.h>
 #endif
 
+// Static map tracking which devices are currently selected by the SDRplay API.
+// Maps device ID (serial, or serial/S for RSPduo slave) to a pointer to the
+// SoapySDRPlay instance's `device` member struct.
+//
+// INVARIANT: releaseDevice() MUST be called before a SoapySDRPlay instance is
+// destroyed to remove its entry from this map. Failure to do so will result in
+// dangling pointers. This invariant is maintained by:
+// 1. The destructor calling releaseDevice() with exception handling
+// 2. The DeviceSelectionGuard RAII class in the constructor
+//
+// All accesses to this map must be protected by selectedRSPDevices_mutex.
 std::unordered_map<std::string, sdrplay_api_DeviceT*> SoapySDRPlay::selectedRSPDevices;
 static std::mutex selectedRSPDevices_mutex;
 
