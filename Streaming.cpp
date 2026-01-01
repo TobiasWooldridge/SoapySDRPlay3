@@ -58,14 +58,34 @@ static void _rx_callback_A(short *xi, short *xq, sdrplay_api_StreamCbParamsT *pa
                            unsigned int numSamples, unsigned int reset, void *cbContext)
 {
     auto *self = static_cast<SoapySDRPlay *>(cbContext);
-    return self->rx_callback(xi, xq, params, numSamples, self->_streams[0]);
+    SoapySDRPlay::SoapySDRPlayStream *stream = nullptr;
+    std::unique_lock<std::mutex> streamLock;
+    {
+        std::lock_guard<std::mutex> lock(self->_general_state_mutex);
+        stream = self->_streams[0];
+        if (stream == nullptr) {
+            return;
+        }
+        streamLock = std::unique_lock<std::mutex>(stream->mutex);
+    }
+    return self->rx_callback(xi, xq, params, numSamples, stream);
 }
 
 static void _rx_callback_B(short *xi, short *xq, sdrplay_api_StreamCbParamsT *params,
                            unsigned int numSamples, unsigned int reset, void *cbContext)
 {
     auto *self = static_cast<SoapySDRPlay *>(cbContext);
-    return self->rx_callback(xi, xq, params, numSamples, self->_streams[1]);
+    SoapySDRPlay::SoapySDRPlayStream *stream = nullptr;
+    std::unique_lock<std::mutex> streamLock;
+    {
+        std::lock_guard<std::mutex> lock(self->_general_state_mutex);
+        stream = self->_streams[1];
+        if (stream == nullptr) {
+            return;
+        }
+        streamLock = std::unique_lock<std::mutex>(stream->mutex);
+    }
+    return self->rx_callback(xi, xq, params, numSamples, stream);
 }
 
 static void _ev_callback(sdrplay_api_EventT eventId, sdrplay_api_TunerSelectT tuner,
@@ -80,10 +100,10 @@ void SoapySDRPlay::rx_callback(short *xi, short *xq,
                                unsigned int numSamples,
                                SoapySDRPlayStream *stream)
 {
+    // stream->mutex must be held by the caller to prevent concurrent teardown
     if (stream == nullptr || device_unavailable) {
         return;
     }
-    std::lock_guard<std::mutex> lock(stream->mutex);
 
     bool notify = false;
     if (gr_changed == 0 && params->grChanged != 0)
