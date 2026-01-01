@@ -64,9 +64,21 @@ SoapySDRPlay::SoapySDRPlay(const SoapySDR::Kwargs &args)
     bufferLength = bufferElems * elementsPerSample;
     cachedBufferThreshold = bufferLength.load();  // Initially no decimation
 
-    selectDevice(args.at("serial"),
-                 args.count("mode") ? args.at("mode") : "",
-                 args.count("antenna") ? args.at("antenna") : "");
+    const std::string serial = args.at("serial");
+    const std::string mode = args.count("mode") ? args.at("mode") : "";
+    cacheKey = makeAntennaPersistKey(serial, mode);
+
+    std::string antenna = args.count("antenna") ? args.at("antenna") : "";
+    if (antenna.empty())
+    {
+        antenna = loadPersistedAntenna(makeAntennaPersistKey(serial, mode), 0);
+    }
+
+    selectDevice(serial, mode, antenna);
+    if (!antenna.empty())
+    {
+        setAntenna(SOAPY_SDR_RX, 0, antenna);
+    }
 
     // keep all the default settings:
     // - rf: 200MHz
@@ -94,8 +106,6 @@ SoapySDRPlay::SoapySDRPlay(const SoapySDR::Kwargs &args)
         writeSetting(arg.first, arg.second);
     }
 
-    cacheKey = serNo;
-    if (hwVer == SDRPLAY_RSPduo_ID) cacheKey += "@" + args.at("mode");
     SoapySDRPlay_getClaimedSerials().insert(cacheKey);
 }
 

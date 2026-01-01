@@ -314,6 +314,12 @@ private:
                           std::atomic<int> *changeFlag,
                           const char *updateName);
 
+    static std::string makeAntennaPersistKey(const std::string &serial, const std::string &mode);
+
+    std::string loadPersistedAntenna(const std::string &key, const size_t channel) const;
+
+    void savePersistedAntenna(const std::string &key, const size_t channel, const std::string &name) const;
+
     static sdrplay_api_Bw_MHzT getBwEnumForRate(double output_sample_rate);
 
     static double getBwValueFromEnum(sdrplay_api_Bw_MHzT bwEnum);

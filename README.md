@@ -12,16 +12,22 @@
 ## Notable enhancements in this repo
 
 * Hardware/API support updates: SDRplay API v3.14/v3.15, RSP1B, RSPdx-R2, HDR mode + HDR bandwidth controls
+* Device discovery/selection: serial/mode filters, claimed-device enumeration for multi-client SoapyRemote, clearer error logging
 * RSPduo handling: mode-specific device selection, tuner/antenna switching safeguards, master/slave coordination
 * Gain/bandwidth controls: overall gain API (LNA/IFGR distribution), RF gain range fixes, AGC set point handling, expanded sample rates/ranges
 * Streaming stability/performance: safer teardown, deadlock/race fixes, buffer alignment, ring buffer hot-path optimizations, update serialization
+* Antenna persistence per device (stored under config dir; override with `antenna=` device arg)
 * Build/debug options: USB bulk mode option, serial-in-log option, release optimization flags, uninstall target, improved logging/troubleshooting
 
 ## Testing
 
-* Unit tests cover deterministic helpers (enum/string mappings, bandwidth mapping, stream buffer defaults)
+* Unit tests cover deterministic helpers, stream buffer defaults, and readStream behavior
 * Enable with `-DENABLE_TESTS=ON` and run `ctest --test-dir build`
-* Hardware/driver behavior still requires integration testing with SDRplay devices
+* Unit tests default to a mock SDRplay API layer (`-DUSE_MOCK_SDRPLAY_API=ON`), avoiding hardware/service requirements (headers still required)
+* Use `SOAPY_SDRPLAY_CONFIG_DIR` to override the config directory for antenna persistence (useful for tests or portable installs)
+* Hardware-in-the-loop dual-radio stress test:
+  `tests/run_hil_dual_read.sh SERIAL_A SERIAL_B` (or set `SDRPLAY_SERIAL_A`/`SDRPLAY_SERIAL_B`)
+* HIL build target: `-DENABLE_HIL_TESTS=ON` creates `build/sdrplay_hil_dual_read`
 
 ## Troubleshooting
 

@@ -26,6 +26,20 @@
 
 #include "SoapySDRPlay.hpp"
 
+#include <cctype>
+#include <cerrno>
+#include <cstdlib>
+#include <fstream>
+#include <sstream>
+
+#ifdef _WIN32
+#include <direct.h>
+#include <sys/stat.h>
+#else
+#include <sys/stat.h>
+#include <sys/types.h>
+#endif
+
 static sdrplay_api_ErrT updateLocked(HANDLE dev,
                                      sdrplay_api_TunerSelectT tuner,
                                      sdrplay_api_ReasonForUpdateT reason,
@@ -33,6 +47,171 @@ static sdrplay_api_ErrT updateLocked(HANDLE dev,
 {
     SdrplayApiLockGuard apiLock;
     return sdrplay_api_Update(dev, tuner, reason, reasonExt);
+}
+
+namespace {
+#ifdef _WIN32
+const char kPathSep = '\\';
+#else
+const char kPathSep = '/';
+#endif
+
+std::string sanitizeKey(const std::string &key)
+{
+    std::string out;
+    out.reserve(key.size());
+    for (char ch : key)
+    {
+        if (std::isalnum(static_cast<unsigned char>(ch)) || ch == '_' || ch == '-' || ch == '.')
+        {
+            out.push_back(ch);
+        }
+        else
+        {
+            out.push_back('_');
+        }
+    }
+    return out;
+}
+
+std::string trimLine(std::string value)
+{
+    while (!value.empty())
+    {
+        char ch = value.back();
+        if (ch == '\n' || ch == '\r' || ch == ' ' || ch == '\t')
+        {
+            value.pop_back();
+            continue;
+        }
+        break;
+    }
+    return value;
+}
+
+bool ensureDirExists(const std::string &path)
+{
+#ifdef _WIN32
+    struct _stat st;
+    if (_stat(path.c_str(), &st) == 0)
+    {
+        return (st.st_mode & _S_IFDIR) != 0;
+    }
+    if (_mkdir(path.c_str()) == 0)
+    {
+        return true;
+    }
+    return errno == EEXIST;
+#else
+    struct stat st;
+    if (stat(path.c_str(), &st) == 0)
+    {
+        return S_ISDIR(st.st_mode);
+    }
+    if (mkdir(path.c_str(), 0755) == 0)
+    {
+        return true;
+    }
+    return errno == EEXIST;
+#endif
+}
+
+std::string getConfigDir()
+{
+    const char *overridePath = std::getenv("SOAPY_SDRPLAY_CONFIG_DIR");
+    if (overridePath && *overridePath)
+    {
+        return std::string(overridePath);
+    }
+#ifdef _WIN32
+    const char *appdata = std::getenv("APPDATA");
+    if (appdata && *appdata)
+    {
+        return std::string(appdata) + "\\SoapySDRPlay";
+    }
+    const char *userprofile = std::getenv("USERPROFILE");
+    if (userprofile && *userprofile)
+    {
+        return std::string(userprofile) + "\\.config\\SoapySDRPlay";
+    }
+#else
+    const char *xdg = std::getenv("XDG_CONFIG_HOME");
+    if (xdg && *xdg)
+    {
+        return std::string(xdg) + "/SoapySDRPlay";
+    }
+    const char *home = std::getenv("HOME");
+    if (home && *home)
+    {
+        return std::string(home) + "/.config/SoapySDRPlay";
+    }
+#endif
+    return std::string();
+}
+
+std::string buildAntennaPath(const std::string &dir, const std::string &key, const size_t channel)
+{
+    std::ostringstream path;
+    path << dir << kPathSep << "antenna_" << sanitizeKey(key) << "_ch" << channel << ".txt";
+    return path.str();
+}
+} // namespace
+
+std::string SoapySDRPlay::makeAntennaPersistKey(const std::string &serial, const std::string &mode)
+{
+    if (mode.empty())
+    {
+        return serial;
+    }
+    return serial + "@" + mode;
+}
+
+std::string SoapySDRPlay::loadPersistedAntenna(const std::string &key, const size_t channel) const
+{
+    if (key.empty())
+    {
+        return std::string();
+    }
+    const std::string dir = getConfigDir();
+    if (dir.empty())
+    {
+        return std::string();
+    }
+    const std::string path = buildAntennaPath(dir, key, channel);
+    std::ifstream input(path.c_str());
+    if (!input.is_open())
+    {
+        return std::string();
+    }
+    std::string value;
+    std::getline(input, value);
+    return trimLine(value);
+}
+
+void SoapySDRPlay::savePersistedAntenna(const std::string &key, const size_t channel, const std::string &name) const
+{
+    if (key.empty() || name.empty())
+    {
+        return;
+    }
+    const std::string dir = getConfigDir();
+    if (dir.empty())
+    {
+        return;
+    }
+    if (!ensureDirExists(dir))
+    {
+        SoapySDR_logf(SOAPY_SDR_WARNING, "Antenna persistence disabled: cannot create config dir '%s'", dir.c_str());
+        return;
+    }
+    const std::string path = buildAntennaPath(dir, key, channel);
+    std::ofstream output(path.c_str(), std::ofstream::trunc);
+    if (!output.is_open())
+    {
+        SoapySDR_logf(SOAPY_SDR_WARNING, "Antenna persistence disabled: cannot write '%s'", path.c_str());
+        return;
+    }
+    output << name << "\n";
 }
 
 /*******************************************************************
@@ -104,9 +283,13 @@ void SoapySDRPlay::setAntenna(const int direction, const size_t channel, const s
         return;
     }
 
-    std::lock_guard <std::mutex> lock(_general_state_mutex);
+    std::string persistName;
+    bool shouldPersist = false;
 
-    if (device.hwVer == SDRPLAY_RSP2_ID)
+    {
+        std::lock_guard <std::mutex> lock(_general_state_mutex);
+
+        if (device.hwVer == SDRPLAY_RSP2_ID)
     {
         bool changeToAntennaA_B = false;
 
@@ -133,6 +316,13 @@ void SoapySDRPlay::setAntenna(const int direction, const size_t channel, const s
                 }
             }
         }
+        else
+        {
+            return;
+        }
+
+        persistName = name;
+        shouldPersist = true;
 
         if (changeToAntennaA_B)
         {
@@ -183,6 +373,13 @@ void SoapySDRPlay::setAntenna(const int direction, const size_t channel, const s
         {
             deviceParams->devParams->rspDxParams.antennaSel = sdrplay_api_RspDx_ANTENNA_C;
         }
+        else
+        {
+            return;
+        }
+
+        persistName = name;
+        shouldPersist = true;
 
         if (streamActive)
         {
@@ -212,6 +409,13 @@ void SoapySDRPlay::setAntenna(const int direction, const size_t channel, const s
         {
             deviceParams->devParams->rspDxParams.antennaSel = sdrplay_api_RspDx_ANTENNA_C;
         }
+        else
+        {
+            return;
+        }
+
+        persistName = name;
+        shouldPersist = true;
 
         if (streamActive)
         {
@@ -227,6 +431,7 @@ void SoapySDRPlay::setAntenna(const int direction, const size_t channel, const s
         bool changeToTunerA_B = false;
         bool changeAmPort = false;
         bool isTunerChangeAllowed = device.rspDuoMode == sdrplay_api_RspDuoMode_Single_Tuner || device.rspDuoMode == sdrplay_api_RspDuoMode_Master;
+        bool applied = true;
 
         if (name == "Tuner 1 50 ohm")
         {
@@ -244,6 +449,10 @@ void SoapySDRPlay::setAntenna(const int direction, const size_t channel, const s
             changeAmPort = chParams->rspDuoTunerParams.tuner1AmPortSel != sdrplay_api_RspDuo_AMPORT_1;
             chParams->rspDuoTunerParams.tuner1AmPortSel = sdrplay_api_RspDuo_AMPORT_1;
             changeToTunerA_B = isTunerChangeAllowed && device.tuner != sdrplay_api_Tuner_A;
+        }
+        else
+        {
+            return;
         }
 
         if (!changeToTunerA_B)
@@ -276,6 +485,7 @@ void SoapySDRPlay::setAntenna(const int direction, const size_t channel, const s
                     if (err != sdrplay_api_Success)
                     {
                         SoapySDR_logf(SOAPY_SDR_WARNING, "SwapRspDuoActiveTuner Error: %s", sdrplay_api_GetErrorString(err));
+                        applied = false;
                     }
                     chParams = device.tuner == sdrplay_api_Tuner_B ?
                                deviceParams->rxChannelB : deviceParams->rxChannelA;
@@ -284,6 +494,7 @@ void SoapySDRPlay::setAntenna(const int direction, const size_t channel, const s
                 {
                     // not sure what is the best way to handle this case - fv
                     SoapySDR_log(SOAPY_SDR_WARNING, "tuner change not allowed in RSPduo Master mode while the device is streaming");
+                    applied = false;
                 }
             }
             else
@@ -305,6 +516,18 @@ void SoapySDRPlay::setAntenna(const int direction, const size_t channel, const s
                 *chParams = rxChannelParams;
             }
         }
+        if (applied)
+        {
+            persistName = name;
+            shouldPersist = true;
+        }
+    }
+    }
+
+    if (shouldPersist)
+    {
+        const std::string key = cacheKey.empty() ? serNo : cacheKey;
+        savePersistedAntenna(key, channel, persistName);
     }
 }
 

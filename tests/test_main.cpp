@@ -1,8 +1,23 @@
 #include "SoapySDRPlay.hpp"
 
+#include <SoapySDR/Errors.hpp>
+
+#include <cerrno>
+#include <cstdlib>
 #include <cmath>
 #include <iostream>
+#include <stdexcept>
 #include <string>
+
+#ifdef _WIN32
+#include <direct.h>
+#include <process.h>
+#include <sys/stat.h>
+#else
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <unistd.h>
+#endif
 
 struct TestStats
 {
@@ -135,12 +150,256 @@ static void test_stream_defaults()
     }
 }
 
+static bool create_dir(const std::string &path)
+{
+#ifdef _WIN32
+    struct _stat st;
+    if (_stat(path.c_str(), &st) == 0)
+    {
+        return (st.st_mode & _S_IFDIR) != 0;
+    }
+    if (_mkdir(path.c_str()) == 0)
+    {
+        return true;
+    }
+    return errno == EEXIST;
+#else
+    struct stat st;
+    if (stat(path.c_str(), &st) == 0)
+    {
+        return S_ISDIR(st.st_mode);
+    }
+    if (mkdir(path.c_str(), 0755) == 0)
+    {
+        return true;
+    }
+    return errno == EEXIST;
+#endif
+}
+
+class ScopedEnvVar
+{
+public:
+    ScopedEnvVar(const std::string &key, const std::string &value)
+        : key_(key)
+    {
+        const char *current = std::getenv(key.c_str());
+        if (current != nullptr)
+        {
+            hadValue_ = true;
+            oldValue_ = current;
+        }
+#ifdef _WIN32
+        _putenv_s(key.c_str(), value.c_str());
+#else
+        setenv(key.c_str(), value.c_str(), 1);
+#endif
+    }
+
+    ~ScopedEnvVar()
+    {
+#ifdef _WIN32
+        if (hadValue_)
+        {
+            _putenv_s(key_.c_str(), oldValue_.c_str());
+        }
+        else
+        {
+            _putenv_s(key_.c_str(), "");
+        }
+#else
+        if (hadValue_)
+        {
+            setenv(key_.c_str(), oldValue_.c_str(), 1);
+        }
+        else
+        {
+            unsetenv(key_.c_str());
+        }
+#endif
+    }
+
+private:
+    std::string key_;
+    bool hadValue_ = false;
+    std::string oldValue_;
+};
+
+static void test_antenna_persistence()
+{
+#ifdef _WIN32
+    const int pid = _getpid();
+#else
+    const int pid = getpid();
+#endif
+    std::string dir = "test-antenna-" + std::to_string(pid);
+    EXPECT_TRUE(create_dir(dir));
+
+    ScopedEnvVar env("SOAPY_SDRPLAY_CONFIG_DIR", dir);
+
+    SoapySDR::Kwargs args;
+    args["serial"] = "TEST0001";
+    {
+        SoapySDRPlay device(args);
+        device.setAntenna(SOAPY_SDR_RX, 0, "Antenna B");
+        EXPECT_EQ(device.getAntenna(SOAPY_SDR_RX, 0), std::string("Antenna B"));
+    }
+    {
+        SoapySDRPlay device(args);
+        EXPECT_EQ(device.getAntenna(SOAPY_SDR_RX, 0), std::string("Antenna B"));
+    }
+}
+
+static void test_constructor_requires_serial()
+{
+    bool threw = false;
+    try
+    {
+        SoapySDR::Kwargs args;
+        SoapySDRPlay device(args);
+    }
+    catch (const std::exception &)
+    {
+        threw = true;
+    }
+    EXPECT_TRUE(threw);
+}
+
+static void test_device_construction_and_info()
+{
+    SoapySDR::Kwargs args;
+    args["serial"] = "TEST0001";
+
+    SoapySDRPlay device(args);
+    EXPECT_EQ(device.getDriverKey(), std::string("SDRplay"));
+    EXPECT_EQ(device.getHardwareKey(), std::string("RSPdx-R2"));
+
+    auto info = device.getHardwareInfo();
+    EXPECT_TRUE(info.count("sdrplay_api_api_version") != 0);
+    EXPECT_TRUE(info.count("sdrplay_api_hw_version") != 0);
+    EXPECT_EQ(device.getNumChannels(SOAPY_SDR_RX), static_cast<size_t>(1));
+}
+
+static void test_readStream_timeout_when_inactive()
+{
+    SoapySDR::Kwargs args;
+    args["serial"] = "TEST0001";
+
+    SoapySDRPlay device(args);
+    SoapySDR::Stream *stream = device.setupStream(SOAPY_SDR_RX, "CS16");
+
+    short buff[8] = {};
+    void *buffs[] = { buff };
+    int flags = 0;
+    long long timeNs = 0;
+    int ret = device.readStream(stream, buffs, 4, flags, timeNs, 1000);
+    EXPECT_EQ(ret, SOAPY_SDR_TIMEOUT);
+
+    device.closeStream(stream);
+}
+
+static void test_stream_read_cs16()
+{
+    SoapySDR::Kwargs args;
+    args["serial"] = "TEST0001";
+
+    SoapySDRPlay device(args);
+    SoapySDR::Stream *stream = device.setupStream(SOAPY_SDR_RX, "CS16");
+    EXPECT_EQ(device.activateStream(stream), 0);
+
+    auto *playStream = reinterpret_cast<SoapySDRPlay::SoapySDRPlayStream *>(stream);
+    playStream->reset = false;
+    const unsigned int preSamples = 4;
+    const unsigned int flushSamples = DEFAULT_BUFFER_LENGTH - preSamples;
+    short xi[preSamples] = { 1, 2, 3, 4 };
+    short xq[preSamples] = { 5, 6, 7, 8 };
+    std::vector<short> xiFlush(flushSamples, 0);
+    std::vector<short> xqFlush(flushSamples, 0);
+    sdrplay_api_StreamCbParamsT params{};
+    params.numSamples = preSamples;
+    {
+        std::lock_guard<std::mutex> lock(playStream->mutex);
+        device.rx_callback(xi, xq, &params, preSamples, playStream);
+        params.numSamples = flushSamples;
+        device.rx_callback(xiFlush.data(), xqFlush.data(), &params, flushSamples, playStream);
+    }
+
+    short buff[8] = {};
+    void *buffs[] = { buff };
+    int flags = 0;
+    long long timeNs = 0;
+    int ret = device.readStream(stream, buffs, preSamples, flags, timeNs, 100000);
+    EXPECT_EQ(ret, static_cast<int>(preSamples));
+    EXPECT_EQ(buff[0], 1);
+    EXPECT_EQ(buff[1], 5);
+    EXPECT_EQ(buff[2], 2);
+    EXPECT_EQ(buff[3], 6);
+    EXPECT_EQ(buff[4], 3);
+    EXPECT_EQ(buff[5], 7);
+    EXPECT_EQ(buff[6], 4);
+    EXPECT_EQ(buff[7], 8);
+
+    device.closeStream(stream);
+}
+
+static void test_stream_read_cf32()
+{
+    SoapySDR::Kwargs args;
+    args["serial"] = "TEST0002";
+
+    SoapySDRPlay device(args);
+    SoapySDR::Stream *stream = device.setupStream(SOAPY_SDR_RX, "CF32");
+    EXPECT_EQ(device.activateStream(stream), 0);
+
+    auto *playStream = reinterpret_cast<SoapySDRPlay::SoapySDRPlayStream *>(stream);
+    playStream->reset = false;
+    const unsigned int preSamples = 2;
+    const unsigned int flushSamples = DEFAULT_BUFFER_LENGTH - preSamples;
+    short xi[preSamples] = { 16384, -16384 };
+    short xq[preSamples] = { 8192, -8192 };
+    std::vector<short> xiFlush(flushSamples, 0);
+    std::vector<short> xqFlush(flushSamples, 0);
+    sdrplay_api_StreamCbParamsT params{};
+    params.numSamples = preSamples;
+    {
+        std::lock_guard<std::mutex> lock(playStream->mutex);
+        device.rx_callback(xi, xq, &params, preSamples, playStream);
+        params.numSamples = flushSamples;
+        device.rx_callback(xiFlush.data(), xqFlush.data(), &params, flushSamples, playStream);
+    }
+
+    float buff[4] = {};
+    void *buffs[] = { buff };
+    int flags = 0;
+    long long timeNs = 0;
+    int ret = device.readStream(stream, buffs, preSamples, flags, timeNs, 100000);
+    EXPECT_EQ(ret, static_cast<int>(preSamples));
+    EXPECT_NEAR(buff[0], 0.5, 1e-6);
+    EXPECT_NEAR(buff[1], 0.25, 1e-6);
+    EXPECT_NEAR(buff[2], -0.5, 1e-6);
+    EXPECT_NEAR(buff[3], -0.25, 1e-6);
+
+    device.closeStream(stream);
+}
+
 int main()
 {
+    std::string baseDir = "test-config";
+    create_dir(baseDir);
+    ScopedEnvVar env("SOAPY_SDRPLAY_CONFIG_DIR", baseDir);
+
+    SoapySDRPlay::sdrplay_api::get_instance();
+
     test_hwver_mappings();
     test_rspduo_mode_mappings();
     test_bandwidth_mappings();
     test_stream_defaults();
+    test_antenna_persistence();
+    test_constructor_requires_serial();
+    test_device_construction_and_info();
+    test_readStream_timeout_when_inactive();
+    test_stream_read_cs16();
+    test_stream_read_cf32();
 
     if (g_stats.failed != 0)
     {

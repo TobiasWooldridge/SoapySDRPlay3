@@ -99,15 +99,32 @@ set(SDRPLAY_SOURCES
 # Optional: Build unit tests (logic-only, no SDRplay hardware required)
 option(ENABLE_TESTS "Build unit tests" OFF)
 if(ENABLE_TESTS)
+    option(USE_MOCK_SDRPLAY_API "Use mock SDRplay API for unit tests" ON)
     enable_testing()
     add_executable(sdrplay_unit_tests
         tests/test_main.cpp
         ${SDRPLAY_SOURCES}
     )
+    if(USE_MOCK_SDRPLAY_API)
+        target_sources(sdrplay_unit_tests PRIVATE tests/mock_sdrplay_api.cpp)
+    endif()
     target_compile_definitions(sdrplay_unit_tests PRIVATE SOAPYSDRPLAY_ENABLE_TESTS=1)
     target_include_directories(sdrplay_unit_tests PRIVATE ${SoapySDR_INCLUDE_DIRS})
-    target_link_libraries(sdrplay_unit_tests PRIVATE ${LIBSDRPLAY_LIBRARIES} ${SoapySDR_LIBRARIES})
+    target_link_libraries(sdrplay_unit_tests PRIVATE ${SoapySDR_LIBRARIES})
+    if(NOT USE_MOCK_SDRPLAY_API)
+        target_link_libraries(sdrplay_unit_tests PRIVATE ${LIBSDRPLAY_LIBRARIES})
+    endif()
     add_test(NAME sdrplay_unit_tests COMMAND sdrplay_unit_tests)
+endif()
+
+# Optional: Build hardware-in-the-loop test utilities
+option(ENABLE_HIL_TESTS "Build hardware-in-the-loop tests" OFF)
+if(ENABLE_HIL_TESTS)
+    add_executable(sdrplay_hil_dual_read
+        tests/hil_dual_read.cpp
+    )
+    target_include_directories(sdrplay_hil_dual_read PRIVATE ${SoapySDR_INCLUDE_DIRS})
+    target_link_libraries(sdrplay_hil_dual_read PRIVATE ${SoapySDR_LIBRARIES})
 endif()
 
 SOAPY_SDR_MODULE_UTIL(
