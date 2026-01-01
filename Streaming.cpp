@@ -132,67 +132,106 @@ void SoapySDRPlay::rx_callback(short *xi, short *xq,
         return;
     }
 
-    int spaceReqd = numSamples * elementsPerSample * shortsPerWord;
+    const size_t spaceReqd = static_cast<size_t>(numSamples) * elementsPerSample;
     // Use cached threshold to avoid division in hot path
-    unsigned long threshold = cachedBufferThreshold.load(std::memory_order_relaxed);
-    if (threshold == 0) threshold = bufferLength;  // Fallback if not yet initialized
-    if ((stream->buffs[stream->tail].size() + spaceReqd) >= threshold)
-    {
-       // increment the tail pointer and buffer count
-       // Use bitwise AND instead of modulo for power-of-2 numBuffers (faster)
-       stream->tail = (stream->tail + 1) & (numBuffers - 1);
-       stream->count++;
-
-       auto &buff = stream->buffs[stream->tail];
-       if (stream->count == numBuffers && static_cast<size_t>(spaceReqd) > buff.capacity() - buff.size())
-       {
-           stream->overflowEvent = true;
-           return;
-       }
-
-       // notify readStream()
-       stream->cond.notify_one();
-    }
-
-    // get current fill buffer
-    auto &buff = stream->buffs[stream->tail];
-
-    // Check if resize would exceed capacity (would cause reallocation)
-    size_t newSize = buff.size() + spaceReqd;
-    if (newSize > buff.capacity())
-    {
-        stream->overflowEvent = true;
-        return;
-    }
-
-    // resize within pre-allocated capacity (no reallocation)
-    buff.resize(newSize);
+    size_t threshold = static_cast<size_t>(cachedBufferThreshold.load(std::memory_order_relaxed));
+    if (threshold == 0) threshold = static_cast<size_t>(bufferLength.load());  // Fallback if not yet initialized
 
     // copy into the buffer queue
     unsigned int i = 0;
 
     if (useShort)
     {
-       short *dptr = buff.data();
-       dptr += (buff.size() - spaceReqd);
-       for (i = 0; i < numSamples; i++)
-       {
-           *dptr++ = xi[i];
-           *dptr++ = xq[i];
+        {
+            auto &buff = stream->shortBuffs[stream->tail];
+            if ((buff.size() + spaceReqd) >= threshold)
+            {
+                // increment the tail pointer and buffer count
+                // Use bitwise AND instead of modulo for power-of-2 numBuffers (faster)
+                stream->tail = (stream->tail + 1) & (numBuffers - 1);
+                stream->count++;
+
+                auto &nextBuff = stream->shortBuffs[stream->tail];
+                if (stream->count == numBuffers && spaceReqd > nextBuff.capacity() - nextBuff.size())
+                {
+                    stream->overflowEvent = true;
+                    return;
+                }
+
+                // notify readStream()
+                stream->cond.notify_one();
+            }
+        }
+
+        // get current fill buffer
+        auto &buff = stream->shortBuffs[stream->tail];
+
+        // Check if resize would exceed capacity (would cause reallocation)
+        size_t newSize = buff.size() + spaceReqd;
+        if (newSize > buff.capacity())
+        {
+            stream->overflowEvent = true;
+            return;
+        }
+
+        // resize within pre-allocated capacity (no reallocation)
+        buff.resize(newSize);
+
+        short *dptr = buff.data();
+        dptr += (buff.size() - spaceReqd);
+        for (i = 0; i < numSamples; i++)
+        {
+            *dptr++ = xi[i];
+            *dptr++ = xq[i];
         }
     }
     else
     {
-       // Use multiplication by reciprocal instead of division for performance
-       // (multiplication is faster than division in the hot path)
-       constexpr float SCALE = 1.0f / 32768.0f;
-       auto *dptr = reinterpret_cast<float *>(buff.data());
-       dptr += ((buff.size() - spaceReqd) / shortsPerWord);
-       for (i = 0; i < numSamples; i++)
-       {
-          *dptr++ = static_cast<float>(xi[i]) * SCALE;
-          *dptr++ = static_cast<float>(xq[i]) * SCALE;
-       }
+        {
+            auto &buff = stream->floatBuffs[stream->tail];
+            if ((buff.size() + spaceReqd) >= threshold)
+            {
+                // increment the tail pointer and buffer count
+                // Use bitwise AND instead of modulo for power-of-2 numBuffers (faster)
+                stream->tail = (stream->tail + 1) & (numBuffers - 1);
+                stream->count++;
+
+                auto &nextBuff = stream->floatBuffs[stream->tail];
+                if (stream->count == numBuffers && spaceReqd > nextBuff.capacity() - nextBuff.size())
+                {
+                    stream->overflowEvent = true;
+                    return;
+                }
+
+                // notify readStream()
+                stream->cond.notify_one();
+            }
+        }
+
+        // get current fill buffer
+        auto &buff = stream->floatBuffs[stream->tail];
+
+        // Check if resize would exceed capacity (would cause reallocation)
+        size_t newSize = buff.size() + spaceReqd;
+        if (newSize > buff.capacity())
+        {
+            stream->overflowEvent = true;
+            return;
+        }
+
+        // resize within pre-allocated capacity (no reallocation)
+        buff.resize(newSize);
+
+        // Use multiplication by reciprocal instead of division for performance
+        // (multiplication is faster than division in the hot path)
+        constexpr float SCALE = 1.0f / 32768.0f;
+        float *dptr = buff.data();
+        dptr += (buff.size() - spaceReqd);
+        for (i = 0; i < numSamples; i++)
+        {
+            *dptr++ = static_cast<float>(xi[i]) * SCALE;
+            *dptr++ = static_cast<float>(xq[i]) * SCALE;
+        }
     }
 
     return;
@@ -294,8 +333,10 @@ SoapySDRPlay::SoapySDRPlayStream::SoapySDRPlayStream(size_t channel,
     reset = false;
 
     // allocate buffers
-    buffs.resize(numBuffers);
-    for (auto &buff : buffs) buff.reserve(bufferLength);
+    shortBuffs.resize(numBuffers);
+    for (auto &buff : shortBuffs) buff.reserve(bufferLength);
+    floatBuffs.resize(numBuffers);
+    for (auto &buff : floatBuffs) buff.reserve(bufferLength);
 }
 
 SoapySDRPlay::SoapySDRPlayStream::~SoapySDRPlayStream()
@@ -325,15 +366,13 @@ SoapySDR::Stream *SoapySDRPlay::setupStream(const int direction,
     if (format == "CS16")
     {
         useShort = true;
-        shortsPerWord = 1;
-        bufferLength = bufferElems * elementsPerSample * shortsPerWord;
+        bufferLength = bufferElems * elementsPerSample;
         SoapySDR_log(SOAPY_SDR_INFO, "Using format CS16.");
     }
     else if (format == "CF32")
     {
         useShort = false;
-        shortsPerWord = sizeof(float) / sizeof(short);
-        bufferLength = bufferElems * elementsPerSample * shortsPerWord;  // allocate enough space for floats instead of shorts
+        bufferLength = bufferElems * elementsPerSample;
         SoapySDR_log(SOAPY_SDR_INFO, "Using format CF32.");
     }
     else
@@ -560,13 +599,16 @@ int SoapySDRPlay::readStream(SoapySDR::Stream *stream,
 
     // copy into user's buff - always write to buffs[0] since each stream
     // can have only one rx/channel
+    const size_t elemCount = returnedElems * elementsPerSample;
     if (useShort)
     {
-        std::memcpy(buffs[0], sdrplay_stream->currentBuff, returnedElems * 2 * sizeof(short));
+        const auto *src = static_cast<const short *>(sdrplay_stream->currentBuff);
+        std::memcpy(buffs[0], src, elemCount * sizeof(short));
     }
     else
     {
-        std::memcpy(buffs[0], reinterpret_cast<const float *>(sdrplay_stream->currentBuff), returnedElems * 2 * sizeof(float));
+        const auto *src = static_cast<const float *>(sdrplay_stream->currentBuff);
+        std::memcpy(buffs[0], src, elemCount * sizeof(float));
     }
 
     // bump variables for next call into readStream
@@ -575,7 +617,16 @@ int SoapySDRPlay::readStream(SoapySDR::Stream *stream,
     // scope lock here to update stream->currentBuff position
     {
         std::lock_guard <std::mutex> lock(sdrplay_stream->mutex);
-        sdrplay_stream->currentBuff += returnedElems * elementsPerSample * shortsPerWord;
+        if (useShort)
+        {
+            auto *src = static_cast<short *>(sdrplay_stream->currentBuff);
+            sdrplay_stream->currentBuff = src + elemCount;
+        }
+        else
+        {
+            auto *src = static_cast<float *>(sdrplay_stream->currentBuff);
+            sdrplay_stream->currentBuff = src + elemCount;
+        }
     }
 
     // return number of elements written to buff
@@ -602,7 +653,7 @@ size_t SoapySDRPlay::getNumDirectAccessBuffers(SoapySDR::Stream *stream)
         return 0;
     }
     std::lock_guard <std::mutex> lockA(sdrplay_stream->mutex);
-    return sdrplay_stream->buffs.size();
+    return useShort ? sdrplay_stream->shortBuffs.size() : sdrplay_stream->floatBuffs.size();
 }
 
 int SoapySDRPlay::getDirectAccessBufferAddrs(SoapySDR::Stream *stream, const size_t handle, void **buffs)
@@ -614,12 +665,24 @@ int SoapySDRPlay::getDirectAccessBufferAddrs(SoapySDR::Stream *stream, const siz
     }
     std::lock_guard <std::mutex> lockA(sdrplay_stream->mutex);
     // validate handle is within bounds
-    if (handle >= sdrplay_stream->buffs.size())
+    if (useShort)
     {
-        return SOAPY_SDR_OVERFLOW;
+        if (handle >= sdrplay_stream->shortBuffs.size())
+        {
+            return SOAPY_SDR_OVERFLOW;
+        }
+        // always write to buffs[0] since each stream can have only one rx/channel
+        buffs[0] = static_cast<void *>(sdrplay_stream->shortBuffs[handle].data());
     }
-    // always write to buffs[0] since each stream can have only one rx/channel
-    buffs[0] = static_cast<void *>(sdrplay_stream->buffs[handle].data());
+    else
+    {
+        if (handle >= sdrplay_stream->floatBuffs.size())
+        {
+            return SOAPY_SDR_OVERFLOW;
+        }
+        // always write to buffs[0] since each stream can have only one rx/channel
+        buffs[0] = static_cast<void *>(sdrplay_stream->floatBuffs[handle].data());
+    }
     return 0;
 }
 
@@ -646,7 +709,14 @@ int SoapySDRPlay::acquireReadBuffer(SoapySDR::Stream *stream,
         sdrplay_stream->tail = 0;
         sdrplay_stream->head = 0;
         sdrplay_stream->count = 0;
-        for (auto &buff : sdrplay_stream->buffs) buff.clear();
+        if (useShort)
+        {
+            for (auto &buff : sdrplay_stream->shortBuffs) buff.clear();
+        }
+        else
+        {
+            for (auto &buff : sdrplay_stream->floatBuffs) buff.clear();
+        }
         sdrplay_stream->overflowEvent = false;
         if (sdrplay_stream->reset)
         {
@@ -678,14 +748,25 @@ int SoapySDRPlay::acquireReadBuffer(SoapySDR::Stream *stream,
     // extract handle and buffer
     handle = sdrplay_stream->head;
     // always write to buffs[0] since each stream can have only one rx/channel
-    buffs[0] = static_cast<void *>(sdrplay_stream->buffs[handle].data());
+    if (useShort)
+    {
+        buffs[0] = static_cast<void *>(sdrplay_stream->shortBuffs[handle].data());
+    }
+    else
+    {
+        buffs[0] = static_cast<void *>(sdrplay_stream->floatBuffs[handle].data());
+    }
     flags = 0;
 
     // Use bitwise AND instead of modulo for power-of-2 numBuffers (faster)
     sdrplay_stream->head = (sdrplay_stream->head + 1) & (numBuffers - 1);
 
     // return number available
-    return static_cast<int>(sdrplay_stream->buffs[handle].size() / (elementsPerSample * shortsPerWord));
+    if (useShort)
+    {
+        return static_cast<int>(sdrplay_stream->shortBuffs[handle].size() / elementsPerSample);
+    }
+    return static_cast<int>(sdrplay_stream->floatBuffs[handle].size() / elementsPerSample);
 }
 
 void SoapySDRPlay::releaseReadBuffer(SoapySDR::Stream *stream, const size_t handle)
@@ -697,10 +778,25 @@ void SoapySDRPlay::releaseReadBuffer(SoapySDR::Stream *stream, const size_t hand
     }
     std::lock_guard <std::mutex> lockA(sdrplay_stream->mutex);
     // validate handle is within bounds and count won't underflow
-    if (handle >= sdrplay_stream->buffs.size() || sdrplay_stream->count == 0)
+    if (sdrplay_stream->count == 0)
     {
         return;
     }
-    sdrplay_stream->buffs[handle].clear();
+    if (useShort)
+    {
+        if (handle >= sdrplay_stream->shortBuffs.size())
+        {
+            return;
+        }
+        sdrplay_stream->shortBuffs[handle].clear();
+    }
+    else
+    {
+        if (handle >= sdrplay_stream->floatBuffs.size())
+        {
+            return;
+        }
+        sdrplay_stream->floatBuffs[handle].clear();
+    }
     sdrplay_stream->count--;
 }

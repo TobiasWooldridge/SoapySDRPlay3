@@ -329,8 +329,6 @@ private:
     const unsigned int bufferElems = DEFAULT_BUFFER_LENGTH;
     const int elementsPerSample = DEFAULT_ELEMS_PER_SAMPLE;
 
-    std::atomic_uint shortsPerWord;
- 
     std::atomic_bool streamActive;
 
     std::atomic_bool useShort;
@@ -380,12 +378,13 @@ public:
         std::mutex mutex;
         std::condition_variable cond;
 
-        std::vector<std::vector<short> > buffs;
+        std::vector<std::vector<short> > shortBuffs;
+        std::vector<std::vector<float> > floatBuffs;
         size_t      head;
         size_t      tail;
         /// number of in-flight buffers
         size_t      count;
-        short *currentBuff;
+        void *currentBuff;
         bool overflowEvent;
         std::atomic_size_t nElems;
         size_t currentHandle;

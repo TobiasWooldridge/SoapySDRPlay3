@@ -60,8 +60,7 @@ SoapySDRPlay::SoapySDRPlay(const SoapySDR::Kwargs &args)
     rf_changed = 0;
     fs_changed = 0;
     useShort = true;
-    shortsPerWord = 1;
-    bufferLength = bufferElems * elementsPerSample * shortsPerWord;
+    bufferLength = bufferElems * elementsPerSample;
     cachedBufferThreshold = bufferLength.load();  // Initially no decimation
 
     selectDevice(args.at("serial"),
