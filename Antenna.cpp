@@ -45,7 +45,7 @@ static sdrplay_api_ErrT updateLocked(HANDLE dev,
                                      sdrplay_api_ReasonForUpdateT reason,
                                      sdrplay_api_ReasonForUpdateExtension1T reasonExt)
 {
-    SdrplayApiLockGuard apiLock;
+    SdrplayApiLockGuard apiLock(SDRPLAY_API_TIMEOUT_MS);
     return sdrplay_api_Update(dev, tuner, reason, reasonExt);
 }
 
@@ -478,7 +478,7 @@ void SoapySDRPlay::setAntenna(const int direction, const size_t channel, const s
                 {
                     sdrplay_api_ErrT err;
                     {
-                        SdrplayApiLockGuard apiLock;
+                        SdrplayApiLockGuard apiLock(SDRPLAY_API_TIMEOUT_MS);
                         err = sdrplay_api_SwapRspDuoActiveTuner(device.dev,
                                    &device.tuner, chParams->rspDuoTunerParams.tuner1AmPortSel);
                     }

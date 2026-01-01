@@ -37,7 +37,7 @@ static sdrplay_api_ErrT updateLocked(HANDLE dev,
                                      sdrplay_api_ReasonForUpdateT reason,
                                      sdrplay_api_ReasonForUpdateExtension1T reasonExt)
 {
-   SdrplayApiLockGuard apiLock;
+   SdrplayApiLockGuard apiLock(SDRPLAY_API_TIMEOUT_MS);
    return sdrplay_api_Update(dev, tuner, reason, reasonExt);
 }
 

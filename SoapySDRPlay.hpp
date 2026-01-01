@@ -38,17 +38,47 @@
 #include <algorithm>
 #include <set>
 #include <unordered_map>
+#include <future>
+#include <chrono>
 
 #include <sdrplay_api.h>
 
+// Default timeout for SDRplay API operations (in milliseconds)
+// This prevents indefinite hangs when the SDRplay service is unresponsive
+#define SDRPLAY_API_TIMEOUT_MS 10000
+
 // RAII guard for SDRplay API lock to prevent lock leaks on exceptions
+// Supports optional timeout to prevent indefinite hangs
 class SdrplayApiLockGuard {
 public:
-    SdrplayApiLockGuard()
+    // Constructor with optional timeout (0 = no timeout, use indefinite lock)
+    explicit SdrplayApiLockGuard(unsigned int timeoutMs = 0)
+        : acquired(false)
     {
         if (lockDepth++ == 0)
         {
-            sdrplay_api_LockDeviceApi();
+            if (timeoutMs > 0)
+            {
+                // Run lock in separate thread with timeout
+                std::future<void> lockFuture = std::async(std::launch::async, []() {
+                    sdrplay_api_LockDeviceApi();
+                });
+
+                auto status = lockFuture.wait_for(std::chrono::milliseconds(timeoutMs));
+                if (status == std::future_status::timeout)
+                {
+                    --lockDepth;  // Restore depth since we didn't acquire
+                    throw std::runtime_error("SDRplay API lock timed out - the SDRplay service may be unresponsive. "
+                                           "Try restarting the SDRplay API service.");
+                }
+                // Lock acquired successfully
+            }
+            else
+            {
+                // No timeout - use blocking lock (original behavior)
+                sdrplay_api_LockDeviceApi();
+            }
+            acquired = true;
         }
     }
     ~SdrplayApiLockGuard()
@@ -57,7 +87,7 @@ public:
         {
             return;
         }
-        if (--lockDepth == 0)
+        if (--lockDepth == 0 && acquired)
         {
             sdrplay_api_UnlockDeviceApi();
         }
@@ -67,6 +97,7 @@ public:
 
 private:
     static thread_local unsigned int lockDepth;
+    bool acquired;
 };
 
 #define DEFAULT_BUFFER_LENGTH     (65536)

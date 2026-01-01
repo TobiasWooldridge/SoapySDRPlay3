@@ -256,7 +256,7 @@ void SoapySDRPlay::ev_callback(sdrplay_api_EventT eventId, sdrplay_api_TunerSele
         sdrplay_api_PowerOverloadCbEventIdT powerOverloadChangeType = params->powerOverloadParams.powerOverloadChangeType;
         if (powerOverloadChangeType == sdrplay_api_Overload_Detected)
         {
-            SdrplayApiLockGuard apiLock;
+            SdrplayApiLockGuard apiLock(SDRPLAY_API_TIMEOUT_MS);
             sdrplay_api_ErrT err = sdrplay_api_Update(device.dev, device.tuner, sdrplay_api_Update_Ctrl_OverloadMsgAck, sdrplay_api_Update_Ext1_None);
             if (err != sdrplay_api_Success)
             {
@@ -266,7 +266,7 @@ void SoapySDRPlay::ev_callback(sdrplay_api_EventT eventId, sdrplay_api_TunerSele
         }
         else if (powerOverloadChangeType == sdrplay_api_Overload_Corrected)
         {
-            SdrplayApiLockGuard apiLock;
+            SdrplayApiLockGuard apiLock(SDRPLAY_API_TIMEOUT_MS);
             sdrplay_api_ErrT err = sdrplay_api_Update(device.dev, device.tuner, sdrplay_api_Update_Ctrl_OverloadMsgAck, sdrplay_api_Update_Ext1_None);
             if (err != sdrplay_api_Success)
             {
@@ -453,7 +453,7 @@ void SoapySDRPlay::closeStream(SoapySDR::Stream *stream)
         while (true)
         {
             sdrplay_api_ErrT err;
-            SdrplayApiLockGuard apiLock;
+            SdrplayApiLockGuard apiLock(SDRPLAY_API_TIMEOUT_MS);
             err = sdrplay_api_Uninit(device.dev);
             if (err != sdrplay_api_StopPending)
             {
@@ -505,7 +505,7 @@ int SoapySDRPlay::activateStream(SoapySDR::Stream *stream,
     // Enable (= sdrplay_api_DbgLvl_Verbose) API calls tracing,
     // but only for debug purposes due to its performance impact.
     {
-        SdrplayApiLockGuard apiLock;
+        SdrplayApiLockGuard apiLock(SDRPLAY_API_TIMEOUT_MS);
         sdrplay_api_DebugEnable(device.dev, sdrplay_api_DbgLvl_Disable);
     }
     //sdrplay_api_DebugEnable(device.dev, sdrplay_api_DbgLvl_Verbose);
@@ -525,7 +525,7 @@ int SoapySDRPlay::activateStream(SoapySDR::Stream *stream,
 #endif
 
     {
-        SdrplayApiLockGuard apiLock;
+        SdrplayApiLockGuard apiLock(SDRPLAY_API_TIMEOUT_MS);
         err = sdrplay_api_Init(device.dev, &cbFns, static_cast<void *>(this));
     }
     if (err != sdrplay_api_Success)

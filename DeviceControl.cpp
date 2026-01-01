@@ -248,7 +248,7 @@ void SoapySDRPlay::selectDevice(sdrplay_api_TunerSelectT tuner,
             sdrplay_api_DeviceT *currDevice = selectedRSPDevices.at(rspDeviceId);
             selectedRSPDevices.erase(rspDeviceId);
             {
-                SdrplayApiLockGuard apiLock;
+                SdrplayApiLockGuard apiLock(SDRPLAY_API_TIMEOUT_MS);
                 err = sdrplay_api_ReleaseDevice(currDevice);
             }
             if (err != sdrplay_api_Success)
@@ -289,7 +289,7 @@ void SoapySDRPlay::selectDevice(sdrplay_api_TunerSelectT tuner,
     }
 
     {
-        SdrplayApiLockGuard apiLock;
+        SdrplayApiLockGuard apiLock(SDRPLAY_API_TIMEOUT_MS);
         sdrplay_api_DeviceT rspDevs[SDRPLAY_MAX_DEVICES];
         sdrplay_api_GetDevices(&rspDevs[0], &nDevs, SDRPLAY_MAX_DEVICES);
 
@@ -391,13 +391,13 @@ void SoapySDRPlay::selectDevice(sdrplay_api_TunerSelectT tuner,
     // Enable (= sdrplay_api_DbgLvl_Verbose) API calls tracing,
     // but only for debug purposes due to its performance impact.
     {
-        SdrplayApiLockGuard apiLock;
+        SdrplayApiLockGuard apiLock(SDRPLAY_API_TIMEOUT_MS);
         sdrplay_api_DebugEnable(device.dev, sdrplay_api_DbgLvl_Disable);
     }
     //sdrplay_api_DebugEnable(device.dev, sdrplay_api_DbgLvl_Verbose);
 
     {
-        SdrplayApiLockGuard apiLock;
+        SdrplayApiLockGuard apiLock(SDRPLAY_API_TIMEOUT_MS);
         err = sdrplay_api_GetDeviceParams(device.dev, &deviceParams);
     }
     if (err != sdrplay_api_Success)
@@ -435,7 +435,7 @@ void SoapySDRPlay::releaseDevice()
     }
     if (currDevice) {
         {
-            SdrplayApiLockGuard apiLock;
+            SdrplayApiLockGuard apiLock(SDRPLAY_API_TIMEOUT_MS);
             err = sdrplay_api_ReleaseDevice(currDevice);
         }
         if (err != sdrplay_api_Success)

@@ -340,7 +340,7 @@ bool SoapySDRPlay::executeApiUpdate(sdrplay_api_ReasonForUpdateT reason,
         *changeFlag = 0;
     }
 
-    SdrplayApiLockGuard apiDeviceLock;
+    SdrplayApiLockGuard apiDeviceLock(SDRPLAY_API_TIMEOUT_MS);
     sdrplay_api_ErrT err = sdrplay_api_Update(device.dev, device.tuner, reason, reasonExt);
     if (err != sdrplay_api_Success)
     {
