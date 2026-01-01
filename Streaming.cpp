@@ -105,6 +105,12 @@ void SoapySDRPlay::rx_callback(short *xi, short *xq,
         return;
     }
 
+    // Defensive check for null input pointers from SDRplay API
+    if (xi == nullptr || xq == nullptr) {
+        SoapySDR_log(SOAPY_SDR_WARNING, "rx_callback: null input pointer from SDRplay API");
+        return;
+    }
+
     bool notify = false;
     if (gr_changed == 0 && params->grChanged != 0)
     {
