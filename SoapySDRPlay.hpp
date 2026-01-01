@@ -44,10 +44,29 @@
 // RAII guard for SDRplay API lock to prevent lock leaks on exceptions
 class SdrplayApiLockGuard {
 public:
-    SdrplayApiLockGuard() { sdrplay_api_LockDeviceApi(); }
-    ~SdrplayApiLockGuard() { sdrplay_api_UnlockDeviceApi(); }
+    SdrplayApiLockGuard()
+    {
+        if (lockDepth++ == 0)
+        {
+            sdrplay_api_LockDeviceApi();
+        }
+    }
+    ~SdrplayApiLockGuard()
+    {
+        if (lockDepth == 0)
+        {
+            return;
+        }
+        if (--lockDepth == 0)
+        {
+            sdrplay_api_UnlockDeviceApi();
+        }
+    }
     SdrplayApiLockGuard(const SdrplayApiLockGuard&) = delete;
     SdrplayApiLockGuard& operator=(const SdrplayApiLockGuard&) = delete;
+
+private:
+    static thread_local unsigned int lockDepth;
 };
 
 #define DEFAULT_BUFFER_LENGTH     (65536)

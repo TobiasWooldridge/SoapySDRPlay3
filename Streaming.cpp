@@ -256,6 +256,7 @@ void SoapySDRPlay::ev_callback(sdrplay_api_EventT eventId, sdrplay_api_TunerSele
         sdrplay_api_PowerOverloadCbEventIdT powerOverloadChangeType = params->powerOverloadParams.powerOverloadChangeType;
         if (powerOverloadChangeType == sdrplay_api_Overload_Detected)
         {
+            SdrplayApiLockGuard apiLock;
             sdrplay_api_ErrT err = sdrplay_api_Update(device.dev, device.tuner, sdrplay_api_Update_Ctrl_OverloadMsgAck, sdrplay_api_Update_Ext1_None);
             if (err != sdrplay_api_Success)
             {
@@ -265,6 +266,7 @@ void SoapySDRPlay::ev_callback(sdrplay_api_EventT eventId, sdrplay_api_TunerSele
         }
         else if (powerOverloadChangeType == sdrplay_api_Overload_Corrected)
         {
+            SdrplayApiLockGuard apiLock;
             sdrplay_api_ErrT err = sdrplay_api_Update(device.dev, device.tuner, sdrplay_api_Update_Ctrl_OverloadMsgAck, sdrplay_api_Update_Ext1_None);
             if (err != sdrplay_api_Success)
             {
@@ -451,6 +453,7 @@ void SoapySDRPlay::closeStream(SoapySDR::Stream *stream)
         while (true)
         {
             sdrplay_api_ErrT err;
+            SdrplayApiLockGuard apiLock;
             err = sdrplay_api_Uninit(device.dev);
             if (err != sdrplay_api_StopPending)
             {
@@ -501,7 +504,10 @@ int SoapySDRPlay::activateStream(SoapySDR::Stream *stream,
 
     // Enable (= sdrplay_api_DbgLvl_Verbose) API calls tracing,
     // but only for debug purposes due to its performance impact.
-    sdrplay_api_DebugEnable(device.dev, sdrplay_api_DbgLvl_Disable);
+    {
+        SdrplayApiLockGuard apiLock;
+        sdrplay_api_DebugEnable(device.dev, sdrplay_api_DbgLvl_Disable);
+    }
     //sdrplay_api_DebugEnable(device.dev, sdrplay_api_DbgLvl_Verbose);
 
     chParams->tunerParams.dcOffsetTuner.dcCal = 4;
@@ -518,7 +524,10 @@ int SoapySDRPlay::activateStream(SoapySDR::Stream *stream,
     deviceParams->devParams->mode = sdrplay_api_BULK;
 #endif
 
-    err = sdrplay_api_Init(device.dev, &cbFns, static_cast<void *>(this));
+    {
+        SdrplayApiLockGuard apiLock;
+        err = sdrplay_api_Init(device.dev, &cbFns, static_cast<void *>(this));
+    }
     if (err != sdrplay_api_Success)
     {
         SoapySDR_logf(SOAPY_SDR_ERROR, "error in activateStream() - Init() failed: %s", sdrplay_api_GetErrorString(err));

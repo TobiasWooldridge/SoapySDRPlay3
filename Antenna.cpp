@@ -26,6 +26,15 @@
 
 #include "SoapySDRPlay.hpp"
 
+static sdrplay_api_ErrT updateLocked(HANDLE dev,
+                                     sdrplay_api_TunerSelectT tuner,
+                                     sdrplay_api_ReasonForUpdateT reason,
+                                     sdrplay_api_ReasonForUpdateExtension1T reasonExt)
+{
+    SdrplayApiLockGuard apiLock;
+    return sdrplay_api_Update(dev, tuner, reason, reasonExt);
+}
+
 /*******************************************************************
  * Antenna API
  ******************************************************************/
@@ -117,10 +126,10 @@ void SoapySDRPlay::setAntenna(const int direction, const size_t channel, const s
 
             if (streamActive)
             {
-                sdrplay_api_ErrT err = sdrplay_api_Update(device.dev, device.tuner, sdrplay_api_Update_Rsp2_AmPortSelect, sdrplay_api_Update_Ext1_None);
+                sdrplay_api_ErrT err = updateLocked(device.dev, device.tuner, sdrplay_api_Update_Rsp2_AmPortSelect, sdrplay_api_Update_Ext1_None);
                 if (err != sdrplay_api_Success)
                 {
-                    SoapySDR_logf(SOAPY_SDR_WARNING, "sdrplay_api_Update(Rsp2_AmPortSelect) failed: %s", sdrplay_api_GetErrorString(err));
+                    SoapySDR_logf(SOAPY_SDR_WARNING, "updateLocked(Rsp2_AmPortSelect) failed: %s", sdrplay_api_GetErrorString(err));
                 }
             }
         }
@@ -135,10 +144,10 @@ void SoapySDRPlay::setAntenna(const int direction, const size_t channel, const s
 
                 if (streamActive)
                 {
-                    sdrplay_api_ErrT err = sdrplay_api_Update(device.dev, device.tuner, sdrplay_api_Update_Rsp2_AmPortSelect, sdrplay_api_Update_Ext1_None);
+                    sdrplay_api_ErrT err = updateLocked(device.dev, device.tuner, sdrplay_api_Update_Rsp2_AmPortSelect, sdrplay_api_Update_Ext1_None);
                     if (err != sdrplay_api_Success)
                     {
-                        SoapySDR_logf(SOAPY_SDR_WARNING, "sdrplay_api_Update(Rsp2_AmPortSelect) failed: %s", sdrplay_api_GetErrorString(err));
+                        SoapySDR_logf(SOAPY_SDR_WARNING, "updateLocked(Rsp2_AmPortSelect) failed: %s", sdrplay_api_GetErrorString(err));
                     }
                 }
             }
@@ -146,10 +155,10 @@ void SoapySDRPlay::setAntenna(const int direction, const size_t channel, const s
             {
                 if (streamActive)
                 {
-                    sdrplay_api_ErrT err = sdrplay_api_Update(device.dev, device.tuner, sdrplay_api_Update_Rsp2_AntennaControl, sdrplay_api_Update_Ext1_None);
+                    sdrplay_api_ErrT err = updateLocked(device.dev, device.tuner, sdrplay_api_Update_Rsp2_AntennaControl, sdrplay_api_Update_Ext1_None);
                     if (err != sdrplay_api_Success)
                     {
-                        SoapySDR_logf(SOAPY_SDR_WARNING, "sdrplay_api_Update(Rsp2_AntennaControl) failed: %s", sdrplay_api_GetErrorString(err));
+                        SoapySDR_logf(SOAPY_SDR_WARNING, "updateLocked(Rsp2_AntennaControl) failed: %s", sdrplay_api_GetErrorString(err));
                     }
                 }
             }
@@ -177,10 +186,10 @@ void SoapySDRPlay::setAntenna(const int direction, const size_t channel, const s
 
         if (streamActive)
         {
-            sdrplay_api_ErrT err = sdrplay_api_Update(device.dev, device.tuner, sdrplay_api_Update_None, sdrplay_api_Update_RspDx_AntennaControl);
+            sdrplay_api_ErrT err = updateLocked(device.dev, device.tuner, sdrplay_api_Update_None, sdrplay_api_Update_RspDx_AntennaControl);
             if (err != sdrplay_api_Success)
             {
-                SoapySDR_logf(SOAPY_SDR_WARNING, "sdrplay_api_Update(RspDx_AntennaControl) failed: %s", sdrplay_api_GetErrorString(err));
+                SoapySDR_logf(SOAPY_SDR_WARNING, "updateLocked(RspDx_AntennaControl) failed: %s", sdrplay_api_GetErrorString(err));
             }
         }
     }
@@ -206,10 +215,10 @@ void SoapySDRPlay::setAntenna(const int direction, const size_t channel, const s
 
         if (streamActive)
         {
-            sdrplay_api_ErrT err = sdrplay_api_Update(device.dev, device.tuner, sdrplay_api_Update_None, sdrplay_api_Update_RspDx_AntennaControl);
+            sdrplay_api_ErrT err = updateLocked(device.dev, device.tuner, sdrplay_api_Update_None, sdrplay_api_Update_RspDx_AntennaControl);
             if (err != sdrplay_api_Success)
             {
-                SoapySDR_logf(SOAPY_SDR_WARNING, "sdrplay_api_Update(RspDx_AntennaControl) failed: %s", sdrplay_api_GetErrorString(err));
+                SoapySDR_logf(SOAPY_SDR_WARNING, "updateLocked(RspDx_AntennaControl) failed: %s", sdrplay_api_GetErrorString(err));
             }
         }
     }
@@ -244,10 +253,10 @@ void SoapySDRPlay::setAntenna(const int direction, const size_t channel, const s
                 //if we are currently High_Z, make the switch first.
                 if (streamActive)
                 {
-                    sdrplay_api_ErrT err = sdrplay_api_Update(device.dev, device.tuner, sdrplay_api_Update_RspDuo_AmPortSelect, sdrplay_api_Update_Ext1_None);
+                    sdrplay_api_ErrT err = updateLocked(device.dev, device.tuner, sdrplay_api_Update_RspDuo_AmPortSelect, sdrplay_api_Update_Ext1_None);
                     if (err != sdrplay_api_Success)
                     {
-                        SoapySDR_logf(SOAPY_SDR_WARNING, "sdrplay_api_Update(RspDuo_AmPortSelect) failed: %s", sdrplay_api_GetErrorString(err));
+                        SoapySDR_logf(SOAPY_SDR_WARNING, "updateLocked(RspDuo_AmPortSelect) failed: %s", sdrplay_api_GetErrorString(err));
                     }
                 }
             }
@@ -259,8 +268,11 @@ void SoapySDRPlay::setAntenna(const int direction, const size_t channel, const s
                 if (device.rspDuoMode == sdrplay_api_RspDuoMode_Single_Tuner)
                 {
                     sdrplay_api_ErrT err;
-                    err = sdrplay_api_SwapRspDuoActiveTuner(device.dev,
-                               &device.tuner, chParams->rspDuoTunerParams.tuner1AmPortSel);
+                    {
+                        SdrplayApiLockGuard apiLock;
+                        err = sdrplay_api_SwapRspDuoActiveTuner(device.dev,
+                                   &device.tuner, chParams->rspDuoTunerParams.tuner1AmPortSel);
+                    }
                     if (err != sdrplay_api_Success)
                     {
                         SoapySDR_logf(SOAPY_SDR_WARNING, "SwapRspDuoActiveTuner Error: %s", sdrplay_api_GetErrorString(err));

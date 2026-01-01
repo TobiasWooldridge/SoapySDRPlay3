@@ -24,6 +24,8 @@
 
 #include "SoapySDRPlay.hpp"
 
+thread_local unsigned int SdrplayApiLockGuard::lockDepth = 0;
+
 float SoapySDRPlay::sdrplay_api::ver = 0.0;
 
 // Singleton class for SDRplay API (only one per process)

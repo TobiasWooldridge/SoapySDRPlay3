@@ -237,7 +237,10 @@ void SoapySDRPlay::selectDevice(sdrplay_api_TunerSelectT tuner,
         if (selectedRSPDevices.count(rspDeviceId)) {
             sdrplay_api_DeviceT *currDevice = selectedRSPDevices.at(rspDeviceId);
             selectedRSPDevices.erase(rspDeviceId);
-            err = sdrplay_api_ReleaseDevice(currDevice);
+            {
+                SdrplayApiLockGuard apiLock;
+                err = sdrplay_api_ReleaseDevice(currDevice);
+            }
             if (err != sdrplay_api_Success)
             {
                 SoapySDR_logf(SOAPY_SDR_ERROR, "ReleaseDevice Error: %s", sdrplay_api_GetErrorString(err));
@@ -377,10 +380,16 @@ void SoapySDRPlay::selectDevice(sdrplay_api_TunerSelectT tuner,
 
     // Enable (= sdrplay_api_DbgLvl_Verbose) API calls tracing,
     // but only for debug purposes due to its performance impact.
-    sdrplay_api_DebugEnable(device.dev, sdrplay_api_DbgLvl_Disable);
+    {
+        SdrplayApiLockGuard apiLock;
+        sdrplay_api_DebugEnable(device.dev, sdrplay_api_DbgLvl_Disable);
+    }
     //sdrplay_api_DebugEnable(device.dev, sdrplay_api_DbgLvl_Verbose);
 
-    err = sdrplay_api_GetDeviceParams(device.dev, &deviceParams);
+    {
+        SdrplayApiLockGuard apiLock;
+        err = sdrplay_api_GetDeviceParams(device.dev, &deviceParams);
+    }
     if (err != sdrplay_api_Success)
     {
         SoapySDR_logf(SOAPY_SDR_ERROR, "GetDeviceParams Error: %s", sdrplay_api_GetErrorString(err));
@@ -415,7 +424,10 @@ void SoapySDRPlay::releaseDevice()
         }
     }
     if (currDevice) {
-        err = sdrplay_api_ReleaseDevice(currDevice);
+        {
+            SdrplayApiLockGuard apiLock;
+            err = sdrplay_api_ReleaseDevice(currDevice);
+        }
         if (err != sdrplay_api_Success)
         {
             SoapySDR_logf(SOAPY_SDR_ERROR, "ReleaseDevice Error: %s", sdrplay_api_GetErrorString(err));
