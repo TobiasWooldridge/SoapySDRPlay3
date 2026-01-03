@@ -34,6 +34,57 @@ static std::atomic<bool> g_apiOpened{false};
 // Track whether API open has failed permanently (timeout or error)
 static std::atomic<bool> g_apiOpenFailed{false};
 
+/*******************************************************************
+ * Service Health Tracking
+ *
+ * Tracks consecutive API timeouts to detect when the SDRplay service
+ * becomes unresponsive. This information is used by the watchdog
+ * and recovery systems.
+ ******************************************************************/
+
+static std::atomic<int> g_consecutiveTimeouts{0};
+static std::atomic<bool> g_serviceUnresponsive{false};
+static constexpr int MAX_CONSECUTIVE_TIMEOUTS = 3;
+
+// Record that an API call timed out
+void recordApiTimeout()
+{
+    int count = ++g_consecutiveTimeouts;
+    if (count >= MAX_CONSECUTIVE_TIMEOUTS) {
+        if (!g_serviceUnresponsive.exchange(true)) {
+            ::SoapySDR_log(SOAPY_SDR_ERROR,
+                "SDRplay service appears unresponsive after multiple API timeouts");
+        }
+    }
+}
+
+// Record that an API call succeeded
+void recordApiSuccess()
+{
+    g_consecutiveTimeouts = 0;
+    g_serviceUnresponsive = false;
+}
+
+// Check if the service is responsive
+bool isServiceResponsive()
+{
+    return !g_serviceUnresponsive.load();
+}
+
+// Get the number of consecutive timeouts
+int getConsecutiveTimeouts()
+{
+    return g_consecutiveTimeouts.load();
+}
+
+// Reset service health tracking (e.g., after service restart)
+void resetServiceHealthTracking()
+{
+    g_consecutiveTimeouts = 0;
+    g_serviceUnresponsive = false;
+    g_apiOpenFailed = false;
+}
+
 // Singleton class for SDRplay API (only one per process)
 SoapySDRPlay::sdrplay_api::sdrplay_api()
 {

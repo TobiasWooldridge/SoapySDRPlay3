@@ -30,6 +30,56 @@
   `tests/run_hil_dual_read.sh SERIAL_A SERIAL_B` (or set `SDRPLAY_SERIAL_A`/`SDRPLAY_SERIAL_B`)
 * HIL build target: `-DENABLE_HIL_TESTS=ON` creates `build/sdrplay_hil_dual_read`
 
+## SDRplay Service Recovery
+
+The SDRplay API service (`sdrplay_apiService`) can become unresponsive, causing device enumeration and `Device::make()` to hang indefinitely.
+
+### Symptoms
+
+- `SoapySDRUtil --find` hangs or times out
+- Applications hang when opening SDRplay devices
+- Log messages: "SDRplay API lock timed out" or "Device::make() timed out"
+- SDRplay devices not detected despite being physically connected
+
+### Recovery Script (macOS)
+
+A recovery script is provided in `scripts/fix-sdrplay-full.sh`:
+
+```bash
+# Run with sudo (or configure passwordless sudo for this script)
+sudo scripts/fix-sdrplay-full.sh
+```
+
+The script performs:
+1. Kills all SDRplay service instances
+2. Power-cycles SDRplay USB ports (requires `uhubctl`)
+3. Restarts the SDRplay API service
+4. Verifies device enumeration works
+
+**Note:** You may need to customize the USB hub/port numbers in the script for your setup.
+
+### Manual Recovery
+
+```bash
+# macOS
+killall -9 sdrplay_apiService
+/Library/SDRplayAPI/3.15.1/bin/sdrplay_apiService &
+
+# Linux (systemd)
+sudo systemctl restart sdrplay
+
+# Verify
+SoapySDRUtil --find=sdrplay
+```
+
+### Configuring Passwordless Sudo (macOS)
+
+To allow the fix script to run without password prompts:
+
+```bash
+echo 'YOUR_USER ALL=(ALL) NOPASSWD: /path/to/SoapySDRPlay3/scripts/fix-sdrplay-full.sh' | sudo tee /etc/sudoers.d/fix-sdrplay
+```
+
 ## Troubleshooting
 
 This section contains some useful information for troubleshhoting

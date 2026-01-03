@@ -1,0 +1,45 @@
+# /etc/sudoers.d/sdrplay
+#
+# Sudoers configuration for SoapySDRPlay3 service management
+#
+# This allows members of the 'sdrplay' group to restart the SDRplay
+# service and reset USB devices without entering a password.
+#
+# Installation:
+#   1. Create the sdrplay group:
+#      macOS:  sudo dseditgroup -o create sdrplay
+#      Linux:  sudo groupadd sdrplay
+#
+#   2. Add users to the group:
+#      macOS:  sudo dseditgroup -o edit -a $USER -t user sdrplay
+#      Linux:  sudo usermod -a -G sdrplay $USER
+#
+#   3. Install the scripts:
+#      sudo cp scripts/sdrplay-service-restart /usr/local/bin/
+#      sudo cp scripts/sdrplay-usb-reset /usr/local/bin/
+#      sudo chmod 755 /usr/local/bin/sdrplay-service-restart
+#      sudo chmod 755 /usr/local/bin/sdrplay-usb-reset
+#
+#   4. Install this sudoers file (use visudo to validate!):
+#      sudo visudo -c -f scripts/sdrplay.sudoers  # Validate first
+#      sudo cp scripts/sdrplay.sudoers /etc/sudoers.d/sdrplay
+#      sudo chmod 440 /etc/sudoers.d/sdrplay
+#
+#   5. Log out and back in for group membership to take effect.
+#
+# Security Notes:
+#   - These scripts are carefully designed to only perform specific,
+#     safe operations (restart service, power cycle USB ports)
+#   - The scripts do not accept arbitrary input that could be exploited
+#   - Only members of the 'sdrplay' group can use these commands
+#
+
+# Allow sdrplay group to restart the SDRplay service without password
+%sdrplay ALL=(ALL) NOPASSWD: /usr/local/bin/sdrplay-service-restart
+
+# Allow sdrplay group to reset SDRplay USB devices without password
+%sdrplay ALL=(ALL) NOPASSWD: /usr/local/bin/sdrplay-usb-reset
+
+# Alternative: If you prefer to specify per-user instead of group:
+# username ALL=(ALL) NOPASSWD: /usr/local/bin/sdrplay-service-restart
+# username ALL=(ALL) NOPASSWD: /usr/local/bin/sdrplay-usb-reset

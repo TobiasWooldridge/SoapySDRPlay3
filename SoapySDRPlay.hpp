@@ -42,10 +42,18 @@
 #include <chrono>
 
 #include <sdrplay_api.h>
+#include <functional>
 
 // Default timeout for SDRplay API operations (in milliseconds)
 // This prevents indefinite hangs when the SDRplay service is unresponsive
 #define SDRPLAY_API_TIMEOUT_MS 10000
+
+// Service health tracking functions (defined in sdrplay_api.cpp)
+void recordApiTimeout();
+void recordApiSuccess();
+bool isServiceResponsive();
+int getConsecutiveTimeouts();
+void resetServiceHealthTracking();
 
 // RAII guard for SDRplay API lock to prevent lock leaks on exceptions
 // Supports optional timeout to prevent indefinite hangs
@@ -70,6 +78,7 @@ public:
                 if (status == std::future_status::timeout)
                 {
                     --lockDepth;  // Restore depth since we didn't acquire
+                    recordApiTimeout();  // Track timeout for service health monitoring
                     // CRITICAL: Spawn cleanup thread to release lock when eventually acquired
                     // Otherwise the lock leaks and all subsequent calls hang forever!
                     std::thread([lockFuture]() {
@@ -86,6 +95,7 @@ public:
                                            "Try restarting the SDRplay API service.");
                 }
                 // Lock acquired successfully
+                recordApiSuccess();  // Reset timeout counter on success
             }
             else
             {
@@ -132,6 +142,95 @@ private:
 #define DEFAULT_BUFFER_LENGTH     (65536)
 #define DEFAULT_NUM_BUFFERS       (8)
 #define DEFAULT_ELEMS_PER_SAMPLE  (2)
+
+/*******************************************************************
+ * Health Monitoring and Recovery Types
+ ******************************************************************/
+
+// Device health status for monitoring and recovery
+enum class DeviceHealthStatus {
+    Healthy,              // Stream active, callbacks arriving normally
+    Warning,              // Minor issues (slow callbacks, high timeouts)
+    Stale,                // Callbacks stopped arriving
+    Recovering,           // Recovery in progress
+    ServiceUnresponsive,  // API calls timing out
+    DeviceRemoved,        // USB device disconnected
+    Failed                // Unrecoverable failure
+};
+
+// Detailed health information
+struct HealthInfo {
+    DeviceHealthStatus status = DeviceHealthStatus::Healthy;
+    uint64_t callbackCount = 0;
+    double callbackRate = 0.0;           // callbacks per second
+    int consecutiveTimeouts = 0;
+    int recoveryAttempts = 0;
+    int successfulRecoveries = 0;
+    std::string lastError;
+    std::chrono::steady_clock::time_point lastHealthyTime;
+};
+
+// Cached device settings for recovery
+struct DeviceSettingsCache {
+    // Frequency settings
+    double rfFrequencyHz = 200000000;
+    double ppmCorrection = 0.0;
+
+    // Gain settings
+    int lnaState = 4;
+    int ifGainReduction = 40;
+    bool agcEnabled = false;
+    int agcSetPoint = -30;
+
+    // Sample rate and bandwidth
+    double sampleRate = 2000000;
+    double bandwidth = 0;  // 0 = auto
+
+    // Decimation
+    unsigned int decimationFactor = 1;
+    bool decimationEnabled = false;
+
+    // Device-specific settings
+    bool biasTEnabled = false;
+    bool rfNotchEnabled = false;
+    bool dabNotchEnabled = false;
+    bool extRefEnabled = false;
+    bool hdrEnabled = false;
+
+    // Antenna
+    std::string antennaName;
+
+    // DC/IQ correction
+    bool dcCorrectionEnabled = true;
+    bool iqCorrectionEnabled = true;
+
+    // Validity
+    std::chrono::steady_clock::time_point savedAt;
+    bool isValid = false;
+};
+
+// Watchdog configuration
+struct WatchdogConfig {
+    bool enabled = true;
+    int callbackTimeoutMs = 2000;      // Max time between callbacks before stale
+    int healthCheckIntervalMs = 500;   // How often to check health
+    int maxRecoveryAttempts = 3;       // Per session
+    int recoveryBackoffMs = 1000;      // Initial backoff between attempts
+    bool autoRecover = true;           // Automatic vs manual recovery
+    bool restartServiceOnFailure = false;  // Try to restart SDRplay service
+    bool usbResetOnFailure = false;        // Try USB power cycle (requires uhubctl)
+};
+
+// Recovery result codes
+enum class RecoveryResult {
+    Success,
+    FailedUninit,
+    FailedInit,
+    FailedSettings,
+    MaxAttemptsExceeded,
+    ServiceDown,
+    InProgress
+};
 
 // Ensure numBuffers is a power of 2 for efficient ring buffer operations
 static_assert((DEFAULT_NUM_BUFFERS & (DEFAULT_NUM_BUFFERS - 1)) == 0,
@@ -335,6 +434,25 @@ public:
     std::string readSetting(const std::string &key) const;
 
     /*******************************************************************
+     * Health Monitoring API
+     ******************************************************************/
+
+    DeviceHealthStatus getHealthStatus() const;
+
+    HealthInfo getHealthInfo() const;
+
+    void registerHealthCallback(std::function<void(DeviceHealthStatus)> callback);
+
+    // Manual recovery control
+    bool triggerRecovery();
+    bool restartService();
+    bool resetUSBDevice();
+
+    // Watchdog configuration
+    WatchdogConfig getWatchdogConfig() const;
+    void setWatchdogConfig(const WatchdogConfig& config);
+
+    /*******************************************************************
      * Async API
      ******************************************************************/
 
@@ -472,6 +590,46 @@ private:
     // Uses timed_mutex to allow try_lock_for() with timeout
     std::timed_mutex api_update_mutex;
 
+    /*******************************************************************
+     * Health Monitoring and Recovery (private)
+     ******************************************************************/
+
+    // Health monitoring
+    HealthInfo healthInfo;
+    mutable std::mutex healthInfoMutex;
+    std::vector<std::function<void(DeviceHealthStatus)>> healthCallbacks;
+    std::mutex healthCallbacksMutex;
+
+    void updateHealthStatus(DeviceHealthStatus newStatus);
+    void notifyHealthCallbacks(DeviceHealthStatus status);
+
+    // Settings cache for recovery
+    DeviceSettingsCache settingsCache;
+    mutable std::mutex settingsCacheMutex;
+
+    void saveCurrentSettings();
+    bool restoreSettings();
+    void invalidateSettingsCache();
+
+    // Watchdog thread
+    WatchdogConfig watchdogConfig;
+    std::thread watchdogThread;
+    std::atomic<bool> watchdogRunning{false};
+    std::atomic<bool> watchdogShutdown{false};
+
+    void watchdogThreadFunc();
+    void startWatchdog();
+    void stopWatchdog();
+    void checkServiceHealth();
+
+    // Recovery state
+    std::atomic<bool> recoveryInProgress{false};
+    std::atomic<int> recoveryAttemptCount{0};
+    std::chrono::steady_clock::time_point lastRecoveryAttempt;
+
+    RecoveryResult attemptStreamRecovery();
+    void handleStaleStream();
+
 public:
 
     /*******************************************************************
@@ -510,6 +668,10 @@ public:
 
         // Callback activity tracking - detects if callbacks stop firing
         std::atomic<uint64_t> lastCallbackTicks{0};
+
+        // Watchdog tracking
+        uint64_t lastWatchdogTicks{0};
+        std::chrono::steady_clock::time_point lastCallbackTime;
     };
 
     SoapySDRPlayStream *_streams[2];

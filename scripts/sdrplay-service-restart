@@ -1,0 +1,81 @@
+#!/bin/bash
+#
+# sdrplay-service-restart - Restart the SDRplay API service
+#
+# This script is designed to be added to sudoers for passwordless execution:
+#
+#   # Add to /etc/sudoers.d/sdrplay (use visudo -f /etc/sudoers.d/sdrplay)
+#   %sdrplay ALL=(ALL) NOPASSWD: /usr/local/bin/sdrplay-service-restart
+#
+# Then add users to the 'sdrplay' group:
+#   sudo dseditgroup -o create sdrplay           # macOS
+#   sudo groupadd sdrplay                        # Linux
+#   sudo usermod -a -G sdrplay $USER             # Add user to group
+#
+# Installation:
+#   sudo cp sdrplay-service-restart /usr/local/bin/
+#   sudo chmod 755 /usr/local/bin/sdrplay-service-restart
+#
+
+set -e
+
+# Detect platform and restart service
+case "$(uname -s)" in
+    Darwin)
+        # macOS - use launchctl
+        PLIST="/Library/LaunchDaemons/com.sdrplay.apiservice.plist"
+
+        if [ ! -f "$PLIST" ]; then
+            echo "Error: SDRplay service plist not found at $PLIST" >&2
+            exit 1
+        fi
+
+        echo "Stopping SDRplay API service..."
+        launchctl unload "$PLIST" 2>/dev/null || true
+
+        sleep 2
+
+        echo "Starting SDRplay API service..."
+        launchctl load "$PLIST"
+
+        echo "SDRplay API service restarted successfully"
+        ;;
+
+    Linux)
+        # Linux - try systemctl first, then init.d
+        if command -v systemctl &>/dev/null; then
+            # systemd
+            SERVICE_NAME=""
+            for name in sdrplayService sdrplay.api sdrplay-api sdrplay; do
+                if systemctl list-unit-files | grep -q "^$name"; then
+                    SERVICE_NAME="$name"
+                    break
+                fi
+            done
+
+            if [ -z "$SERVICE_NAME" ]; then
+                echo "Error: Could not find SDRplay service in systemd" >&2
+                exit 1
+            fi
+
+            echo "Restarting SDRplay service ($SERVICE_NAME)..."
+            systemctl restart "$SERVICE_NAME"
+            echo "SDRplay service restarted successfully"
+        elif [ -x /etc/init.d/sdrplayService ]; then
+            # SysV init
+            echo "Restarting SDRplay service..."
+            /etc/init.d/sdrplayService restart
+            echo "SDRplay service restarted successfully"
+        else
+            echo "Error: Could not find SDRplay service" >&2
+            exit 1
+        fi
+        ;;
+
+    *)
+        echo "Error: Unsupported platform $(uname -s)" >&2
+        exit 1
+        ;;
+esac
+
+exit 0

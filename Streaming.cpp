@@ -481,6 +481,9 @@ void SoapySDRPlay::closeStream(SoapySDR::Stream *stream)
         // otherwise a callback in flight could access freed memory.
         if (activeStreams == 0)
         {
+            // Stop watchdog before stopping stream
+            stopWatchdog();
+
             while (true)
             {
                 sdrplay_api_ErrT err;
@@ -505,6 +508,9 @@ void SoapySDRPlay::closeStream(SoapySDR::Stream *stream)
         // Handle case where we didn't delete a stream but all streams are now inactive
         if (activeStreams == 0)
         {
+            // Stop watchdog before stopping stream
+            stopWatchdog();
+
             while (true)
             {
                 sdrplay_api_ErrT err;
@@ -623,6 +629,13 @@ int SoapySDRPlay::activateStream(SoapySDR::Stream *stream,
         }
     }
 
+    // Initialize watchdog tracking for this stream
+    {
+        std::lock_guard<std::mutex> streamsLock(_streams_mutex);
+        sdrplay_stream->lastCallbackTime = std::chrono::steady_clock::now();
+        sdrplay_stream->lastWatchdogTicks = 0;
+    }
+
     // Release lock before calling setAntenna (it takes the same lock)
     lock.unlock();
 
@@ -632,6 +645,12 @@ int SoapySDRPlay::activateStream(SoapySDR::Stream *stream,
         {
             setAntenna(SOAPY_SDR_RX, ch, antennaToApply[ch]);
         }
+    }
+
+    // Start watchdog thread if enabled and not already running
+    if (watchdogConfig.enabled && !watchdogRunning.load())
+    {
+        startWatchdog();
     }
 
     return 0;

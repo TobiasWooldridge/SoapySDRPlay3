@@ -526,6 +526,57 @@ SoapySDR::ArgInfoList SoapySDRPlay::getSettingInfo(void) const
        setArgs.push_back(HDRBwArg);
     }
 
+    // Recovery and watchdog settings
+    SoapySDR::ArgInfo watchdogEnabledArg;
+    watchdogEnabledArg.key = "watchdog_enabled";
+    watchdogEnabledArg.value = "true";
+    watchdogEnabledArg.name = "Watchdog Enabled";
+    watchdogEnabledArg.description = "Enable automatic stream health monitoring";
+    watchdogEnabledArg.type = SoapySDR::ArgInfo::BOOL;
+    setArgs.push_back(watchdogEnabledArg);
+
+    SoapySDR::ArgInfo autoRecoverArg;
+    autoRecoverArg.key = "auto_recover";
+    autoRecoverArg.value = "true";
+    autoRecoverArg.name = "Auto Recovery";
+    autoRecoverArg.description = "Automatically attempt stream recovery on failure";
+    autoRecoverArg.type = SoapySDR::ArgInfo::BOOL;
+    setArgs.push_back(autoRecoverArg);
+
+    SoapySDR::ArgInfo maxRecoveryArg;
+    maxRecoveryArg.key = "max_recovery_attempts";
+    maxRecoveryArg.value = "3";
+    maxRecoveryArg.name = "Max Recovery Attempts";
+    maxRecoveryArg.description = "Maximum automatic recovery attempts per session";
+    maxRecoveryArg.type = SoapySDR::ArgInfo::INT;
+    maxRecoveryArg.range = SoapySDR::Range(0, 10);
+    setArgs.push_back(maxRecoveryArg);
+
+    SoapySDR::ArgInfo callbackTimeoutArg;
+    callbackTimeoutArg.key = "callback_timeout_ms";
+    callbackTimeoutArg.value = "2000";
+    callbackTimeoutArg.name = "Callback Timeout (ms)";
+    callbackTimeoutArg.description = "Time without callbacks before stream is considered stale";
+    callbackTimeoutArg.type = SoapySDR::ArgInfo::INT;
+    callbackTimeoutArg.range = SoapySDR::Range(500, 10000);
+    setArgs.push_back(callbackTimeoutArg);
+
+    SoapySDR::ArgInfo restartServiceArg;
+    restartServiceArg.key = "restart_service_on_failure";
+    restartServiceArg.value = "false";
+    restartServiceArg.name = "Restart Service on Failure";
+    restartServiceArg.description = "Attempt to restart SDRplay service when unresponsive (requires sudo/sudoers)";
+    restartServiceArg.type = SoapySDR::ArgInfo::BOOL;
+    setArgs.push_back(restartServiceArg);
+
+    SoapySDR::ArgInfo usbResetArg;
+    usbResetArg.key = "usb_reset_on_failure";
+    usbResetArg.value = "false";
+    usbResetArg.name = "USB Reset on Failure";
+    usbResetArg.description = "Attempt USB power cycle when recovery fails (requires uhubctl and sudo/sudoers)";
+    usbResetArg.type = SoapySDR::ArgInfo::BOOL;
+    setArgs.push_back(usbResetArg);
+
     return setArgs;
 }
 
@@ -860,6 +911,31 @@ void SoapySDRPlay::writeSetting(const std::string &key, const std::string &value
          }
       }
    }
+   // Recovery and watchdog settings (no mutex needed, watchdogConfig is not shared with callbacks)
+   else if (key == "watchdog_enabled")
+   {
+      watchdogConfig.enabled = (value == "true");
+   }
+   else if (key == "auto_recover")
+   {
+      watchdogConfig.autoRecover = (value == "true");
+   }
+   else if (key == "max_recovery_attempts")
+   {
+      watchdogConfig.maxRecoveryAttempts = std::stoi(value);
+   }
+   else if (key == "callback_timeout_ms")
+   {
+      watchdogConfig.callbackTimeoutMs = std::stoi(value);
+   }
+   else if (key == "restart_service_on_failure")
+   {
+      watchdogConfig.restartServiceOnFailure = (value == "true");
+   }
+   else if (key == "usb_reset_on_failure")
+   {
+      watchdogConfig.usbResetOnFailure = (value == "true");
+   }
 }
 
 std::string SoapySDRPlay::readSetting(const std::string &key) const
@@ -969,6 +1045,31 @@ std::string SoapySDRPlay::readSetting(const std::string &key) const
           }
        }
        return "1.700";
+    }
+    // Recovery and watchdog settings
+    else if (key == "watchdog_enabled")
+    {
+       return watchdogConfig.enabled ? "true" : "false";
+    }
+    else if (key == "auto_recover")
+    {
+       return watchdogConfig.autoRecover ? "true" : "false";
+    }
+    else if (key == "max_recovery_attempts")
+    {
+       return std::to_string(watchdogConfig.maxRecoveryAttempts);
+    }
+    else if (key == "callback_timeout_ms")
+    {
+       return std::to_string(watchdogConfig.callbackTimeoutMs);
+    }
+    else if (key == "restart_service_on_failure")
+    {
+       return watchdogConfig.restartServiceOnFailure ? "true" : "false";
+    }
+    else if (key == "usb_reset_on_failure")
+    {
+       return watchdogConfig.usbResetOnFailure ? "true" : "false";
     }
 
     // SoapySDR_logf(SOAPY_SDR_WARNING, "Unknown setting '%s'", key.c_str());

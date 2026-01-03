@@ -94,6 +94,7 @@ set(SDRPLAY_SOURCES
     SampleRate.cpp
     SettingsAPI.cpp
     Streaming.cpp
+    HealthMonitor.cpp
 )
 
 # Optional: Build unit tests (logic-only, no SDRplay hardware required)
@@ -125,6 +126,22 @@ if(ENABLE_HIL_TESTS)
     )
     target_include_directories(sdrplay_hil_dual_read PRIVATE ${SoapySDR_INCLUDE_DIRS})
     target_link_libraries(sdrplay_hil_dual_read PRIVATE ${SoapySDR_LIBRARIES})
+endif()
+
+# Optional: Build stress tests (requires real hardware via SoapySDR API)
+option(ENABLE_STRESS_TESTS "Build stress test suite" OFF)
+if(ENABLE_STRESS_TESTS)
+    add_executable(sdrplay_stress_tests
+        tests/stress_tests.cpp
+    )
+    target_include_directories(sdrplay_stress_tests PRIVATE
+        ${SoapySDR_INCLUDE_DIRS}
+        ${CMAKE_CURRENT_SOURCE_DIR}/tests
+    )
+    target_link_libraries(sdrplay_stress_tests PRIVATE ${SoapySDR_LIBRARIES})
+    # Stress tests need threading support
+    find_package(Threads REQUIRED)
+    target_link_libraries(sdrplay_stress_tests PRIVATE Threads::Threads)
 endif()
 
 SOAPY_SDR_MODULE_UTIL(
