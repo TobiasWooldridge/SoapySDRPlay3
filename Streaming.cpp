@@ -26,6 +26,78 @@
 
 #include "SoapySDRPlay.hpp"
 #include <iostream>
+#include <future>
+
+/*******************************************************************
+ * Timeout-protected API wrappers
+ *
+ * These functions wrap blocking SDRplay API calls with timeout protection
+ * to prevent hangs when the service becomes unresponsive.
+ ******************************************************************/
+
+// Call sdrplay_api_Init with timeout protection
+// Returns the result if completed in time, or sdrplay_api_Fail on timeout
+static sdrplay_api_ErrT initWithTimeout(HANDLE dev, sdrplay_api_CallbackFnsT *cbFns, void *cbContext, unsigned int timeoutMs)
+{
+    auto initFuture = std::make_shared<std::future<sdrplay_api_ErrT>>(
+        std::async(std::launch::async, [dev, cbFns, cbContext]() {
+            sdrplay_api_LockDeviceApi();
+            sdrplay_api_ErrT result = sdrplay_api_Init(dev, cbFns, cbContext);
+            sdrplay_api_UnlockDeviceApi();
+            return result;
+        })
+    );
+
+    auto status = initFuture->wait_for(std::chrono::milliseconds(timeoutMs));
+    if (status == std::future_status::timeout) {
+        ::SoapySDR_logf(SOAPY_SDR_ERROR, "sdrplay_api_Init() timed out after %u ms", timeoutMs);
+        ::SoapySDR_log(SOAPY_SDR_ERROR, "Service may be unresponsive. Stream activation failed.");
+        recordApiTimeout();
+
+        // Detach cleanup thread so we don't block
+        std::thread([initFuture]() {
+            try { initFuture->get(); } catch (...) {}
+        }).detach();
+
+        return sdrplay_api_Fail;
+    }
+
+    recordApiSuccess();
+    return initFuture->get();
+}
+
+// Call sdrplay_api_Uninit with timeout protection
+// Returns the result if completed in time, or sdrplay_api_Fail on timeout
+static sdrplay_api_ErrT uninitWithTimeout(HANDLE dev, unsigned int timeoutMs)
+{
+    // We need to acquire the lock in the async thread to avoid thread-safety issues
+    // with the thread-local lock depth counter
+    auto uninitFuture = std::make_shared<std::future<sdrplay_api_ErrT>>(
+        std::async(std::launch::async, [dev]() {
+            sdrplay_api_LockDeviceApi();
+            sdrplay_api_ErrT result = sdrplay_api_Uninit(dev);
+            sdrplay_api_UnlockDeviceApi();
+            return result;
+        })
+    );
+
+    auto status = uninitFuture->wait_for(std::chrono::milliseconds(timeoutMs));
+    if (status == std::future_status::timeout) {
+        ::SoapySDR_logf(SOAPY_SDR_ERROR, "sdrplay_api_Uninit() timed out after %u ms", timeoutMs);
+        ::SoapySDR_log(SOAPY_SDR_ERROR, "Service may be unresponsive. Stream will be force-closed.");
+        recordApiTimeout();
+
+        // Detach cleanup thread so we don't block
+        std::thread([uninitFuture]() {
+            try { uninitFuture->get(); } catch (...) {}
+        }).detach();
+
+        return sdrplay_api_Fail;
+    }
+
+    recordApiSuccess();
+    return uninitFuture->get();
+}
 
 std::vector<std::string> SoapySDRPlay::getStreamFormats(const int direction, const size_t channel) const
 {
@@ -484,17 +556,26 @@ void SoapySDRPlay::closeStream(SoapySDR::Stream *stream)
             // Stop watchdog before stopping stream
             stopWatchdog();
 
-            while (true)
+            // Use timeout-protected Uninit to prevent hanging
+            int retryCount = 0;
+            const int maxRetries = 10;  // Max retries for StopPending
+            while (retryCount < maxRetries)
             {
-                sdrplay_api_ErrT err;
-                SdrplayApiLockGuard apiLock(SDRPLAY_API_TIMEOUT_MS);
-                err = sdrplay_api_Uninit(device.dev);
+                sdrplay_api_ErrT err = uninitWithTimeout(device.dev, SDRPLAY_API_TIMEOUT_MS);
                 if (err != sdrplay_api_StopPending)
                 {
+                    if (err == sdrplay_api_Fail) {
+                        SoapySDR_log(SOAPY_SDR_WARNING, "Uninit timed out or failed - forcing stream close");
+                    }
                     break;
                 }
-                SoapySDR_logf(SOAPY_SDR_WARNING, "Please close RSPduo slave device first. Trying again in %d seconds", uninitRetryDelay);
+                retryCount++;
+                SoapySDR_logf(SOAPY_SDR_WARNING, "Please close RSPduo slave device first. Trying again in %d seconds (attempt %d/%d)",
+                    uninitRetryDelay, retryCount, maxRetries);
                 std::this_thread::sleep_for(std::chrono::seconds(uninitRetryDelay));
+            }
+            if (retryCount >= maxRetries) {
+                SoapySDR_log(SOAPY_SDR_ERROR, "Exceeded max retries waiting for slave device - forcing close");
             }
             streamActive = false;
         }
@@ -511,17 +592,26 @@ void SoapySDRPlay::closeStream(SoapySDR::Stream *stream)
             // Stop watchdog before stopping stream
             stopWatchdog();
 
-            while (true)
+            // Use timeout-protected Uninit to prevent hanging
+            int retryCount = 0;
+            const int maxRetries = 10;  // Max retries for StopPending
+            while (retryCount < maxRetries)
             {
-                sdrplay_api_ErrT err;
-                SdrplayApiLockGuard apiLock(SDRPLAY_API_TIMEOUT_MS);
-                err = sdrplay_api_Uninit(device.dev);
+                sdrplay_api_ErrT err = uninitWithTimeout(device.dev, SDRPLAY_API_TIMEOUT_MS);
                 if (err != sdrplay_api_StopPending)
                 {
+                    if (err == sdrplay_api_Fail) {
+                        SoapySDR_log(SOAPY_SDR_WARNING, "Uninit timed out or failed - forcing stream close");
+                    }
                     break;
                 }
-                SoapySDR_logf(SOAPY_SDR_WARNING, "Please close RSPduo slave device first. Trying again in %d seconds", uninitRetryDelay);
+                retryCount++;
+                SoapySDR_logf(SOAPY_SDR_WARNING, "Please close RSPduo slave device first. Trying again in %d seconds (attempt %d/%d)",
+                    uninitRetryDelay, retryCount, maxRetries);
                 std::this_thread::sleep_for(std::chrono::seconds(uninitRetryDelay));
+            }
+            if (retryCount >= maxRetries) {
+                SoapySDR_log(SOAPY_SDR_ERROR, "Exceeded max retries waiting for slave device - forcing close");
             }
             streamActive = false;
         }
@@ -586,10 +676,8 @@ int SoapySDRPlay::activateStream(SoapySDR::Stream *stream,
     deviceParams->devParams->mode = sdrplay_api_BULK;
 #endif
 
-    {
-        SdrplayApiLockGuard apiLock(SDRPLAY_API_TIMEOUT_MS);
-        err = sdrplay_api_Init(device.dev, &cbFns, static_cast<void *>(this));
-    }
+    // Use timeout-protected Init to prevent hanging if service is unresponsive
+    err = initWithTimeout(device.dev, &cbFns, static_cast<void *>(this), SDRPLAY_API_TIMEOUT_MS);
     if (err != sdrplay_api_Success)
     {
         SoapySDR_logf(SOAPY_SDR_ERROR, "error in activateStream() - Init() failed: %s", sdrplay_api_GetErrorString(err));

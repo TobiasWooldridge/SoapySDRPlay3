@@ -26,12 +26,115 @@
 
 #include "SoapySDRPlay.hpp"
 #include <exception>
+#include <future>
 
 #if defined(_M_X64) || defined(_M_IX86)
 #define strcasecmp _stricmp
 #elif defined (__GNUC__)
 #include <strings.h>
 #endif
+
+/*******************************************************************
+ * Timeout-protected API wrappers
+ *
+ * These functions wrap blocking SDRplay API calls with timeout protection
+ * to prevent hangs when the service becomes unresponsive.
+ ******************************************************************/
+
+// Call sdrplay_api_GetDeviceParams with timeout protection
+// Returns the result if completed in time, or sdrplay_api_Fail on timeout
+static sdrplay_api_ErrT getDeviceParamsWithTimeout(HANDLE dev, sdrplay_api_DeviceParamsT **deviceParams, unsigned int timeoutMs)
+{
+    auto getParamsFuture = std::make_shared<std::future<sdrplay_api_ErrT>>(
+        std::async(std::launch::async, [dev, deviceParams]() {
+            sdrplay_api_LockDeviceApi();
+            sdrplay_api_ErrT result = sdrplay_api_GetDeviceParams(dev, deviceParams);
+            sdrplay_api_UnlockDeviceApi();
+            return result;
+        })
+    );
+
+    auto status = getParamsFuture->wait_for(std::chrono::milliseconds(timeoutMs));
+    if (status == std::future_status::timeout) {
+        ::SoapySDR_logf(SOAPY_SDR_ERROR, "sdrplay_api_GetDeviceParams() timed out after %u ms", timeoutMs);
+        ::SoapySDR_log(SOAPY_SDR_ERROR, "Service may be unresponsive.");
+        recordApiTimeout();
+
+        // Detach cleanup thread so we don't block
+        std::thread([getParamsFuture]() {
+            try { getParamsFuture->get(); } catch (...) {}
+        }).detach();
+
+        return sdrplay_api_Fail;
+    }
+
+    recordApiSuccess();
+    return getParamsFuture->get();
+}
+
+// Call sdrplay_api_SelectDevice with timeout protection
+// Returns the result if completed in time, or sdrplay_api_Fail on timeout
+static sdrplay_api_ErrT selectDeviceWithTimeout(sdrplay_api_DeviceT *device, unsigned int timeoutMs)
+{
+    auto selectFuture = std::make_shared<std::future<sdrplay_api_ErrT>>(
+        std::async(std::launch::async, [device]() {
+            sdrplay_api_LockDeviceApi();
+            sdrplay_api_ErrT result = sdrplay_api_SelectDevice(device);
+            sdrplay_api_UnlockDeviceApi();
+            return result;
+        })
+    );
+
+    auto status = selectFuture->wait_for(std::chrono::milliseconds(timeoutMs));
+    if (status == std::future_status::timeout) {
+        ::SoapySDR_logf(SOAPY_SDR_ERROR, "sdrplay_api_SelectDevice() timed out after %u ms", timeoutMs);
+        ::SoapySDR_log(SOAPY_SDR_ERROR, "Service may be unresponsive.");
+        recordApiTimeout();
+
+        // Detach cleanup thread so we don't block
+        std::thread([selectFuture]() {
+            try { selectFuture->get(); } catch (...) {}
+        }).detach();
+
+        return sdrplay_api_Fail;
+    }
+
+    recordApiSuccess();
+    return selectFuture->get();
+}
+
+// Call sdrplay_api_ReleaseDevice with timeout protection
+// Returns the result if completed in time, or sdrplay_api_Fail on timeout
+static sdrplay_api_ErrT releaseDeviceWithTimeout(sdrplay_api_DeviceT *device, unsigned int timeoutMs)
+{
+    // We need to acquire the lock in the async thread to avoid thread-safety issues
+    // with the thread-local lock depth counter
+    auto releaseFuture = std::make_shared<std::future<sdrplay_api_ErrT>>(
+        std::async(std::launch::async, [device]() {
+            sdrplay_api_LockDeviceApi();
+            sdrplay_api_ErrT result = sdrplay_api_ReleaseDevice(device);
+            sdrplay_api_UnlockDeviceApi();
+            return result;
+        })
+    );
+
+    auto status = releaseFuture->wait_for(std::chrono::milliseconds(timeoutMs));
+    if (status == std::future_status::timeout) {
+        ::SoapySDR_logf(SOAPY_SDR_ERROR, "sdrplay_api_ReleaseDevice() timed out after %u ms", timeoutMs);
+        ::SoapySDR_log(SOAPY_SDR_ERROR, "Service may be unresponsive. Device will be force-released.");
+        recordApiTimeout();
+
+        // Detach cleanup thread so we don't block
+        std::thread([releaseFuture]() {
+            try { releaseFuture->get(); } catch (...) {}
+        }).detach();
+
+        return sdrplay_api_Fail;
+    }
+
+    recordApiSuccess();
+    return releaseFuture->get();
+}
 
 // Static map tracking which devices are currently selected by the SDRplay API.
 // Maps device ID (serial, or serial/S for RSPduo slave) to a pointer to the
@@ -450,7 +553,8 @@ void SoapySDRPlay::selectDevice(sdrplay_api_TunerSelectT tuner,
 
             SoapySDR_logf(SOAPY_SDR_INFO, "selectDevice: calling sdrplay_api_SelectDevice for serial=%s dev=%p",
                           device.SerNo, (void*)device.dev);
-            err = sdrplay_api_SelectDevice(&device);
+            // Use timeout-protected wrapper to prevent hanging if service is unresponsive
+            err = selectDeviceWithTimeout(&device, SDRPLAY_API_TIMEOUT_MS);
             if (err != sdrplay_api_Success)
             {
                 // Get extended error info
@@ -510,10 +614,8 @@ void SoapySDRPlay::selectDevice(sdrplay_api_TunerSelectT tuner,
     }
     //sdrplay_api_DebugEnable(device.dev, sdrplay_api_DbgLvl_Verbose);
 
-    {
-        SdrplayApiLockGuard apiLock(SDRPLAY_API_TIMEOUT_MS);
-        err = sdrplay_api_GetDeviceParams(device.dev, &deviceParams);
-    }
+    // Use timeout-protected wrapper to prevent hanging if service is unresponsive
+    err = getDeviceParamsWithTimeout(device.dev, &deviceParams, SDRPLAY_API_TIMEOUT_MS);
     if (err != sdrplay_api_Success)
     {
         SoapySDR_logf(SOAPY_SDR_ERROR, "GetDeviceParams Error: %s", sdrplay_api_GetErrorString(err));
@@ -548,14 +650,16 @@ void SoapySDRPlay::releaseDevice()
         }
     }
     if (currDevice) {
-        {
-            SdrplayApiLockGuard apiLock(SDRPLAY_API_TIMEOUT_MS);
-            err = sdrplay_api_ReleaseDevice(currDevice);
-        }
+        err = releaseDeviceWithTimeout(currDevice, SDRPLAY_API_TIMEOUT_MS);
         if (err != sdrplay_api_Success)
         {
             SoapySDR_logf(SOAPY_SDR_ERROR, "ReleaseDevice Error: %s", sdrplay_api_GetErrorString(err));
-            throw std::runtime_error("ReleaseDevice() failed");
+            // Log but don't throw on timeout - allow cleanup to continue
+            if (err == sdrplay_api_Fail) {
+                SoapySDR_log(SOAPY_SDR_WARNING, "ReleaseDevice timed out - device state may be inconsistent");
+            } else {
+                throw std::runtime_error("ReleaseDevice() failed");
+            }
         }
     }
 
