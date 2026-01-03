@@ -47,10 +47,38 @@
 std::unordered_map<std::string, sdrplay_api_DeviceT*> SoapySDRPlay::selectedRSPDevices;
 static std::mutex selectedRSPDevices_mutex;
 
-std::set<std::string> &SoapySDRPlay_getClaimedSerials(void)
+// Global mutex to serialize device selection across all SoapySDRPlay instances.
+// The SDRplay API service has internal state that gets confused when concurrent
+// device selection operations occur, even for different devices. This mutex
+// ensures only one device selection (GetDevices + SelectDevice) happens at a time.
+static std::mutex g_deviceSelectionMutex;
+
+// Retry parameters for transient API errors
+static constexpr int MAX_SELECT_RETRIES = 3;
+static constexpr int RETRY_BASE_DELAY_MS = 100;
+static constexpr int POST_SELECT_DELAY_MS = 50;  // Delay after selection to let API stabilize
+
+// Claimed serials tracking with thread-safe access
+static std::set<std::string> g_claimedSerials;
+static std::mutex g_claimedSerials_mutex;
+
+// Returns a COPY of claimed serials for safe iteration
+std::set<std::string> SoapySDRPlay_getClaimedSerials(void)
 {
-   static std::set<std::string> serials;
-   return serials;
+   std::lock_guard<std::mutex> lock(g_claimedSerials_mutex);
+   return g_claimedSerials;  // Returns copy for thread-safe iteration
+}
+
+void SoapySDRPlay_claimSerial(const std::string &serial)
+{
+   std::lock_guard<std::mutex> lock(g_claimedSerials_mutex);
+   g_claimedSerials.insert(serial);
+}
+
+void SoapySDRPlay_releaseSerial(const std::string &serial)
+{
+   std::lock_guard<std::mutex> lock(g_claimedSerials_mutex);
+   g_claimedSerials.erase(serial);
 }
 
 /*******************************************************************
@@ -148,7 +176,7 @@ SoapySDRPlay::SoapySDRPlay(const SoapySDR::Kwargs &args)
         writeSetting(arg.first, arg.second);
     }
 
-    SoapySDRPlay_getClaimedSerials().insert(cacheKey);
+    SoapySDRPlay_claimSerial(cacheKey);
 
     // Construction succeeded - don't release device on guard destruction
     guard.commit();
@@ -156,7 +184,7 @@ SoapySDRPlay::SoapySDRPlay(const SoapySDR::Kwargs &args)
 
 SoapySDRPlay::~SoapySDRPlay(void)
 {
-    SoapySDRPlay_getClaimedSerials().erase(cacheKey);
+    SoapySDRPlay_releaseSerial(cacheKey);
     std::lock_guard <std::mutex> lock(_general_state_mutex);
 
     try
@@ -333,105 +361,146 @@ void SoapySDRPlay::selectDevice(sdrplay_api_TunerSelectT tuner,
         }
     }
 
+    // Use global mutex to serialize device selection across all instances.
+    // The SDRplay API service cannot handle concurrent device selection reliably.
+    std::lock_guard<std::mutex> globalLock(g_deviceSelectionMutex);
+
+    // Retry loop for transient API errors
+    int retryCount = 0;
+    while (true)
     {
-        SdrplayApiLockGuard apiLock(SDRPLAY_API_TIMEOUT_MS);
-        sdrplay_api_DeviceT rspDevs[SDRPLAY_MAX_DEVICES];
-        sdrplay_api_GetDevices(&rspDevs[0], &nDevs, SDRPLAY_MAX_DEVICES);
-
-        SoapySDR_logf(SOAPY_SDR_INFO, "selectDevice: GetDevices returned %u devices", nDevs);
-
-        unsigned devIdx = SDRPLAY_MAX_DEVICES;
-        for (unsigned int i = 0; i < nDevs; i++)
+        try
         {
-            SoapySDR_logf(SOAPY_SDR_INFO, "  [%u] SerNo=%s hwVer=%d valid=%d dev=%p",
-                          i, rspDevs[i].SerNo, rspDevs[i].hwVer, rspDevs[i].valid, (void*)rspDevs[i].dev);
-            if (!rspDevs[i].valid) continue;
-            if (rspDevs[i].SerNo == serNo) devIdx = i;
-        }
-        if (devIdx == SDRPLAY_MAX_DEVICES) {
-            SoapySDR_log(SOAPY_SDR_ERROR, "no sdrplay device matches");
-            throw std::runtime_error("no sdrplay device matches");
-        }
+            SdrplayApiLockGuard apiLock(SDRPLAY_API_TIMEOUT_MS);
+            sdrplay_api_DeviceT rspDevs[SDRPLAY_MAX_DEVICES];
+            sdrplay_api_GetDevices(&rspDevs[0], &nDevs, SDRPLAY_MAX_DEVICES);
 
-        device = rspDevs[devIdx];
-        hwVer = device.hwVer;
+            SoapySDR_logf(SOAPY_SDR_INFO, "selectDevice: GetDevices returned %u devices", nDevs);
 
-        SoapySDR_logf(SOAPY_SDR_INFO, "selectDevice: selected devIdx=%d", devIdx);
-        SoapySDR_logf(SOAPY_SDR_INFO, "selectDevice: SerNo=%s", device.SerNo);
-        SoapySDR_logf(SOAPY_SDR_INFO, "selectDevice: hwVer=%d", device.hwVer);
-        SoapySDR_logf(SOAPY_SDR_INFO, "selectDevice: dev handle=%p", (void*)device.dev);
-
-        if (hwVer == SDRPLAY_RSPduo_ID && rspDuoMode != sdrplay_api_RspDuoMode_Slave)
-        {
-            if ((rspDuoMode & device.rspDuoMode) != rspDuoMode)
+            unsigned devIdx = SDRPLAY_MAX_DEVICES;
+            for (unsigned int i = 0; i < nDevs; i++)
             {
-                throw std::runtime_error("sdrplay RSPduo mode not available");
+                SoapySDR_logf(SOAPY_SDR_INFO, "  [%u] SerNo=%s hwVer=%d valid=%d dev=%p",
+                              i, rspDevs[i].SerNo, rspDevs[i].hwVer, rspDevs[i].valid, (void*)rspDevs[i].dev);
+                if (!rspDevs[i].valid) continue;
+                if (rspDevs[i].SerNo == serNo) devIdx = i;
+            }
+            if (devIdx == SDRPLAY_MAX_DEVICES) {
+                SoapySDR_log(SOAPY_SDR_ERROR, "no sdrplay device matches");
+                throw std::runtime_error("no sdrplay device matches");
+            }
+
+            device = rspDevs[devIdx];
+            hwVer = device.hwVer;
+
+            SoapySDR_logf(SOAPY_SDR_INFO, "selectDevice: selected devIdx=%d", devIdx);
+            SoapySDR_logf(SOAPY_SDR_INFO, "selectDevice: SerNo=%s", device.SerNo);
+            SoapySDR_logf(SOAPY_SDR_INFO, "selectDevice: hwVer=%d", device.hwVer);
+            SoapySDR_logf(SOAPY_SDR_INFO, "selectDevice: dev handle=%p", (void*)device.dev);
+
+            if (hwVer == SDRPLAY_RSPduo_ID && rspDuoMode != sdrplay_api_RspDuoMode_Slave)
+            {
+                if ((rspDuoMode & device.rspDuoMode) != rspDuoMode)
+                {
+                    throw std::runtime_error("sdrplay RSPduo mode not available");
+                }
+                else
+                {
+                    device.rspDuoMode = rspDuoMode;
+                }
+                if ((tuner & device.tuner) != tuner)
+                {
+                    throw std::runtime_error("sdrplay RSPduo tuner not available");
+                }
+                else
+                {
+                    device.tuner = tuner;
+                }
+                if (rspDuoSampleFreq != 0)
+                {
+                    device.rspDuoSampleFreq = rspDuoSampleFreq;
+                }
+            }
+            else if (hwVer == SDRPLAY_RSPduo_ID && rspDuoMode == sdrplay_api_RspDuoMode_Slave)
+            {
+                if (rspDuoMode != device.rspDuoMode)
+                {
+                    throw std::runtime_error("sdrplay RSPduo slave mode not available");
+                }
+                if (tuner != sdrplay_api_Tuner_Neither && tuner != device.tuner)
+                {
+                    throw std::runtime_error("sdrplay RSPduo tuner not available in slave mode");
+                }
+                if (rspDuoSampleFreq != 0 && rspDuoSampleFreq != device.rspDuoSampleFreq)
+                {
+                    throw std::runtime_error("sdrplay RSPduo sample rate not available in slace mode");
+                }
             }
             else
             {
-                device.rspDuoMode = rspDuoMode;
+                if (rspDuoMode != sdrplay_api_RspDuoMode_Unknown || tuner != sdrplay_api_Tuner_Neither)
+                {
+                    throw std::runtime_error("sdrplay RSP does not support RSPduo mode or tuner");
+                }
             }
-            if ((tuner & device.tuner) != tuner)
-            {
-                throw std::runtime_error("sdrplay RSPduo tuner not available");
-            }
-            else
-            {
-                device.tuner = tuner;
-            }
-            if (rspDuoSampleFreq != 0)
-            {
-                device.rspDuoSampleFreq = rspDuoSampleFreq;
-            }
-        }
-        else if (hwVer == SDRPLAY_RSPduo_ID && rspDuoMode == sdrplay_api_RspDuoMode_Slave)
-        {
-            if (rspDuoMode != device.rspDuoMode)
-            {
-                throw std::runtime_error("sdrplay RSPduo slave mode not available");
-            }
-            if (tuner != sdrplay_api_Tuner_Neither && tuner != device.tuner)
-            {
-                throw std::runtime_error("sdrplay RSPduo tuner not available in slave mode");
-            }
-            if (rspDuoSampleFreq != 0 && rspDuoSampleFreq != device.rspDuoSampleFreq)
-            {
-                throw std::runtime_error("sdrplay RSPduo sample rate not available in slace mode");
-            }
-        }
-        else
-        {
-            if (rspDuoMode != sdrplay_api_RspDuoMode_Unknown || tuner != sdrplay_api_Tuner_Neither)
-            {
-                throw std::runtime_error("sdrplay RSP does not support RSPduo mode or tuner");
-            }
-        }
 
-        SoapySDR_logf(SOAPY_SDR_INFO, "selectDevice: rspDuoMode=%d", device.rspDuoMode);
-        SoapySDR_logf(SOAPY_SDR_INFO, "selectDevice: tuner=%d", device.tuner);
-        SoapySDR_logf(SOAPY_SDR_INFO, "selectDevice: rspDuoSampleFreq=%lf", device.rspDuoSampleFreq);
+            SoapySDR_logf(SOAPY_SDR_INFO, "selectDevice: rspDuoMode=%d", device.rspDuoMode);
+            SoapySDR_logf(SOAPY_SDR_INFO, "selectDevice: tuner=%d", device.tuner);
+            SoapySDR_logf(SOAPY_SDR_INFO, "selectDevice: rspDuoSampleFreq=%lf", device.rspDuoSampleFreq);
 
-        SoapySDR_logf(SOAPY_SDR_INFO, "selectDevice: calling sdrplay_api_SelectDevice for serial=%s dev=%p",
-                      device.SerNo, (void*)device.dev);
-        err = sdrplay_api_SelectDevice(&device);
-        if (err != sdrplay_api_Success)
-        {
-            // Get extended error info
-            sdrplay_api_ErrorInfoT *errInfo = sdrplay_api_GetLastError(nullptr);
-            if (errInfo) {
-                SoapySDR_logf(SOAPY_SDR_ERROR, "SelectDevice LastError: file=%s func=%s line=%d msg=%s",
-                              errInfo->file, errInfo->function, errInfo->line, errInfo->message);
+            SoapySDR_logf(SOAPY_SDR_INFO, "selectDevice: calling sdrplay_api_SelectDevice for serial=%s dev=%p",
+                          device.SerNo, (void*)device.dev);
+            err = sdrplay_api_SelectDevice(&device);
+            if (err != sdrplay_api_Success)
+            {
+                // Get extended error info
+                sdrplay_api_ErrorInfoT *errInfo = sdrplay_api_GetLastError(nullptr);
+                std::string errMsg = errInfo ? errInfo->message : "";
+
+                // Check if this is a transient "Device already selected" error
+                bool isTransientError = (errMsg.find("already selected") != std::string::npos);
+
+                if (isTransientError && retryCount < MAX_SELECT_RETRIES)
+                {
+                    retryCount++;
+                    int delayMs = RETRY_BASE_DELAY_MS * (1 << (retryCount - 1));  // Exponential backoff
+                    SoapySDR_logf(SOAPY_SDR_WARNING,
+                        "SelectDevice transient error (attempt %d/%d), retrying in %dms: %s",
+                        retryCount, MAX_SELECT_RETRIES, delayMs, errMsg.c_str());
+
+                    // Release API lock before sleeping (destructor will handle it)
+                    // Sleep outside the try block to retry from the beginning
+                    std::this_thread::sleep_for(std::chrono::milliseconds(delayMs));
+                    continue;  // Retry the entire selection process
+                }
+
+                if (errInfo) {
+                    SoapySDR_logf(SOAPY_SDR_ERROR, "SelectDevice LastError: file=%s func=%s line=%d msg=%s",
+                                  errInfo->file, errInfo->function, errInfo->line, errInfo->message);
+                }
+                SoapySDR_logf(SOAPY_SDR_ERROR, "SelectDevice Error: %s (code=%d)", sdrplay_api_GetErrorString(err), err);
+                throw std::runtime_error("SelectDevice() failed");
             }
-            SoapySDR_logf(SOAPY_SDR_ERROR, "SelectDevice Error: %s (code=%d)", sdrplay_api_GetErrorString(err), err);
-            throw std::runtime_error("SelectDevice() failed");
+
+            SoapySDR_logf(SOAPY_SDR_INFO, "selectDevice: SUCCESS! dev handle is now=%p", (void*)device.dev);
+            {
+                std::lock_guard<std::mutex> lock(selectedRSPDevices_mutex);
+                selectedRSPDevices[rspDeviceId] = &device;
+            }
+            SoapySDR_logf(SOAPY_SDR_INFO, "selectDevice: stored in selectedRSPDevices[%s]", rspDeviceId.c_str());
+
+            // Small delay after successful selection to let the API service stabilize
+            // This helps prevent issues when opening multiple devices in quick succession
+            std::this_thread::sleep_for(std::chrono::milliseconds(POST_SELECT_DELAY_MS));
+
+            break;  // Success - exit retry loop
         }
-        SoapySDR_logf(SOAPY_SDR_INFO, "selectDevice: SUCCESS! dev handle is now=%p", (void*)device.dev);
+        catch (const std::runtime_error& e)
         {
-            std::lock_guard<std::mutex> lock(selectedRSPDevices_mutex);
-            selectedRSPDevices[rspDeviceId] = &device;
+            // Re-throw non-retryable errors
+            throw;
         }
-        SoapySDR_logf(SOAPY_SDR_INFO, "selectDevice: stored in selectedRSPDevices[%s]", rspDeviceId.c_str());
-    } // RAII guard releases API lock here
+    } // end retry loop
 
     // Enable (= sdrplay_api_DbgLvl_Verbose) API calls tracing,
     // but only for debug purposes due to its performance impact.

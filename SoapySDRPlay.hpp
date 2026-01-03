@@ -60,14 +60,28 @@ public:
             if (timeoutMs > 0)
             {
                 // Run lock in separate thread with timeout
-                std::future<void> lockFuture = std::async(std::launch::async, []() {
-                    sdrplay_api_LockDeviceApi();
-                });
+                auto lockFuture = std::make_shared<std::future<void>>(
+                    std::async(std::launch::async, []() {
+                        sdrplay_api_LockDeviceApi();
+                    })
+                );
 
-                auto status = lockFuture.wait_for(std::chrono::milliseconds(timeoutMs));
+                auto status = lockFuture->wait_for(std::chrono::milliseconds(timeoutMs));
                 if (status == std::future_status::timeout)
                 {
                     --lockDepth;  // Restore depth since we didn't acquire
+                    // CRITICAL: Spawn cleanup thread to release lock when eventually acquired
+                    // Otherwise the lock leaks and all subsequent calls hang forever!
+                    std::thread([lockFuture]() {
+                        try {
+                            lockFuture->get();  // Wait for lock to be acquired
+                            sdrplay_api_UnlockDeviceApi();  // Immediately release it
+                            SoapySDR_logf(SOAPY_SDR_WARNING,
+                                "SDRplay: Released abandoned lock after timeout cleanup");
+                        } catch (...) {
+                            // Lock acquisition failed, nothing to release
+                        }
+                    }).detach();
                     throw std::runtime_error("SDRplay API lock timed out - the SDRplay service may be unresponsive. "
                                            "Try restarting the SDRplay API service.");
                 }
@@ -108,7 +122,10 @@ private:
 static_assert((DEFAULT_NUM_BUFFERS & (DEFAULT_NUM_BUFFERS - 1)) == 0,
               "DEFAULT_NUM_BUFFERS must be a power of 2");
 
-std::set<std::string> &SoapySDRPlay_getClaimedSerials(void);
+// Thread-safe claimed serials access
+std::set<std::string> SoapySDRPlay_getClaimedSerials(void);  // Returns copy for safe iteration
+void SoapySDRPlay_claimSerial(const std::string &serial);
+void SoapySDRPlay_releaseSerial(const std::string &serial);
 
 class SoapySDRPlay: public SoapySDR::Device
 {

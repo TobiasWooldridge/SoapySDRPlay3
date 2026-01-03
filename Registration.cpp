@@ -36,13 +36,21 @@ static std::vector<SoapySDR::Kwargs> findSDRPlay(const SoapySDR::Kwargs &args)
    std::vector<SoapySDR::Kwargs> results;
    unsigned int nDevs = 0;
 
+   fprintf(stderr, "[SDRplay] findSDRPlay: starting\n"); fflush(stderr);
+
    // Protect access to _cachedResults throughout the function
    std::lock_guard<std::mutex> cacheLock(_cachedResultsMutex);
 
+   fprintf(stderr, "[SDRplay] findSDRPlay: acquired cache lock\n"); fflush(stderr);
+
+   try {
    // list devices by API
+   fprintf(stderr, "[SDRplay] findSDRPlay: calling get_instance()\n"); fflush(stderr);
    SoapySDRPlay::sdrplay_api::get_instance();
+   fprintf(stderr, "[SDRplay] findSDRPlay: got instance\n"); fflush(stderr);
    {
       SdrplayApiLockGuard apiLock(SDRPLAY_API_TIMEOUT_MS);
+      fprintf(stderr, "[SDRplay] findSDRPlay: acquired API lock, calling GetDevices\n"); fflush(stderr);
       sdrplay_api_DeviceT rspDevs[SDRPLAY_MAX_DEVICES];
       sdrplay_api_GetDevices(&rspDevs[0], &nDevs, SDRPLAY_MAX_DEVICES);
 
@@ -163,6 +171,13 @@ static std::vector<SoapySDR::Kwargs> findSDRPlay(const SoapySDR::Kwargs &args)
       results.push_back(_cachedResults.at(serial));
    }
 
+   } catch (const std::exception &e) {
+      fprintf(stderr, "[SDRplay] findSDRPlay: exception: %s\n", e.what()); fflush(stderr);
+      SoapySDR_logf(SOAPY_SDR_ERROR, "SDRplay enumeration failed: %s", e.what());
+      // Return cached results on error (may be empty)
+   }
+
+   fprintf(stderr, "[SDRplay] findSDRPlay: returning\n"); fflush(stderr);
    return results;
 }
 
