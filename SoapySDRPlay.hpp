@@ -103,7 +103,22 @@ public:
         }
         if (--lockDepth == 0 && acquired)
         {
-            sdrplay_api_UnlockDeviceApi();
+            // Unlock with timeout protection to prevent blocking in destructor
+            auto unlockFuture = std::make_shared<std::future<void>>(
+                std::async(std::launch::async, []() {
+                    sdrplay_api_UnlockDeviceApi();
+                })
+            );
+
+            auto status = unlockFuture->wait_for(std::chrono::milliseconds(SDRPLAY_API_TIMEOUT_MS));
+            if (status == std::future_status::timeout)
+            {
+                ::SoapySDR_log(SOAPY_SDR_ERROR, "sdrplay_api_UnlockDeviceApi() timed out - service is unresponsive");
+                // Detach cleanup thread to prevent destructor blocking
+                std::thread([unlockFuture]() {
+                    try { unlockFuture->get(); } catch (...) {}
+                }).detach();
+            }
         }
     }
     SdrplayApiLockGuard(const SdrplayApiLockGuard&) = delete;
