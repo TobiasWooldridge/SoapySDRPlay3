@@ -23,14 +23,36 @@ set -e
 case "$(uname -s)" in
     Darwin)
         # macOS - use launchctl
-        PLIST="/Library/LaunchDaemons/com.sdrplay.apiservice.plist"
+        # Try multiple possible plist locations
+        PLIST=""
+        for p in \
+            "/Library/LaunchDaemons/com.sdrplay.apiservice.plist" \
+            "/Library/LaunchDaemons/com.sdrplay.service.plist" \
+            "/Library/SDRplayAPI/3.15.1/plist/com.sdrplay.service.plist" \
+            "/Library/SDRplayAPI/3.14/plist/com.sdrplay.service.plist"; do
+            if [ -f "$p" ]; then
+                PLIST="$p"
+                break
+            fi
+        done
 
-        if [ ! -f "$PLIST" ]; then
-            echo "Error: SDRplay service plist not found at $PLIST" >&2
+        if [ -z "$PLIST" ]; then
+            # Try to find it
+            PLIST=$(find /Library -name "com.sdrplay*.plist" 2>/dev/null | head -1)
+        fi
+
+        if [ -z "$PLIST" ] || [ ! -f "$PLIST" ]; then
+            echo "Error: SDRplay service plist not found" >&2
+            echo "Tried: /Library/LaunchDaemons/com.sdrplay.*.plist" >&2
+            echo "       /Library/SDRplayAPI/*/plist/com.sdrplay.*.plist" >&2
             exit 1
         fi
 
+        echo "Using plist: $PLIST"
         echo "Stopping SDRplay API service..."
+
+        # Kill any existing service processes
+        killall -9 sdrplay_apiService 2>/dev/null || true
         launchctl unload "$PLIST" 2>/dev/null || true
 
         sleep 2
