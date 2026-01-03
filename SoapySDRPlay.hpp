@@ -59,49 +59,17 @@ void resetServiceHealthTracking();
 // Supports optional timeout to prevent indefinite hangs
 class SdrplayApiLockGuard {
 public:
-    // Constructor with optional timeout (0 = no timeout, use indefinite lock)
-    explicit SdrplayApiLockGuard(unsigned int timeoutMs = 0)
+    // Constructor with optional timeout (ignored - kept for API compatibility)
+    // NOTE: Timeout was removed because the lock must be acquired in the same
+    // thread that makes subsequent API calls. Using async for lock acquisition
+    // breaks thread-safety assumptions in the SDRplay API.
+    explicit SdrplayApiLockGuard(unsigned int /* timeoutMs */ = 0)
         : acquired(false)
     {
         if (lockDepth++ == 0)
         {
-            if (timeoutMs > 0)
-            {
-                // Run lock in separate thread with timeout
-                auto lockFuture = std::make_shared<std::future<void>>(
-                    std::async(std::launch::async, []() {
-                        sdrplay_api_LockDeviceApi();
-                    })
-                );
-
-                auto status = lockFuture->wait_for(std::chrono::milliseconds(timeoutMs));
-                if (status == std::future_status::timeout)
-                {
-                    --lockDepth;  // Restore depth since we didn't acquire
-                    recordApiTimeout();  // Track timeout for service health monitoring
-                    // CRITICAL: Spawn cleanup thread to release lock when eventually acquired
-                    // Otherwise the lock leaks and all subsequent calls hang forever!
-                    std::thread([lockFuture]() {
-                        try {
-                            lockFuture->get();  // Wait for lock to be acquired
-                            sdrplay_api_UnlockDeviceApi();  // Immediately release it
-                            SoapySDR_logf(SOAPY_SDR_WARNING,
-                                "SDRplay: Released abandoned lock after timeout cleanup");
-                        } catch (...) {
-                            // Lock acquisition failed, nothing to release
-                        }
-                    }).detach();
-                    throw std::runtime_error("SDRplay API lock timed out - the SDRplay service may be unresponsive. "
-                                           "Try restarting the SDRplay API service.");
-                }
-                // Lock acquired successfully
-                recordApiSuccess();  // Reset timeout counter on success
-            }
-            else
-            {
-                // No timeout - use blocking lock (original behavior)
-                sdrplay_api_LockDeviceApi();
-            }
+            // Directly acquire lock - no timeout to avoid thread-safety issues
+            sdrplay_api_LockDeviceApi();
             acquired = true;
         }
     }
@@ -113,22 +81,8 @@ public:
         }
         if (--lockDepth == 0 && acquired)
         {
-            // Unlock with timeout protection to prevent blocking in destructor
-            auto unlockFuture = std::make_shared<std::future<void>>(
-                std::async(std::launch::async, []() {
-                    sdrplay_api_UnlockDeviceApi();
-                })
-            );
-
-            auto status = unlockFuture->wait_for(std::chrono::milliseconds(SDRPLAY_API_TIMEOUT_MS));
-            if (status == std::future_status::timeout)
-            {
-                ::SoapySDR_log(SOAPY_SDR_ERROR, "sdrplay_api_UnlockDeviceApi() timed out - service is unresponsive");
-                // Detach cleanup thread to prevent destructor blocking
-                std::thread([unlockFuture]() {
-                    try { unlockFuture->get(); } catch (...) {}
-                }).detach();
-            }
+            // Directly release lock
+            sdrplay_api_UnlockDeviceApi();
         }
     }
     SdrplayApiLockGuard(const SdrplayApiLockGuard&) = delete;
