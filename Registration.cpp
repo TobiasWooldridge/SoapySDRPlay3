@@ -45,16 +45,22 @@ static std::vector<SoapySDR::Kwargs> findSDRPlay(const SoapySDR::Kwargs &args)
    // list devices by API
    SoapySDRPlay::sdrplay_api::get_instance();
    {
-      SdrplayApiLockGuard apiLock(SDRPLAY_API_TIMEOUT_MS);
-
       // Use shared_ptr for device array so it survives if async times out
       auto rspDevs = std::make_shared<std::array<sdrplay_api_DeviceT, SDRPLAY_MAX_DEVICES>>();
       auto nDevsPtr = std::make_shared<unsigned int>(0);
+      auto errPtr = std::make_shared<sdrplay_api_ErrT>(sdrplay_api_Success);
 
-      // Wrap GetDevices with timeout protection
-      auto getDevsFuture = std::make_shared<std::future<sdrplay_api_ErrT>>(
-         std::async(std::launch::async, [rspDevs, nDevsPtr]() {
-            return sdrplay_api_GetDevices(rspDevs->data(), nDevsPtr.get(), SDRPLAY_MAX_DEVICES);
+      // Wrap Lock + GetDevices + Unlock in async thread with timeout protection
+      // CRITICAL: Lock must be acquired and released in the same thread
+      auto getDevsFuture = std::make_shared<std::future<void>>(
+         std::async(std::launch::async, [rspDevs, nDevsPtr, errPtr]() {
+            sdrplay_api_ErrT lockErr = sdrplay_api_LockDeviceApi();
+            if (lockErr != sdrplay_api_Success) {
+               *errPtr = lockErr;
+               return;
+            }
+            *errPtr = sdrplay_api_GetDevices(rspDevs->data(), nDevsPtr.get(), SDRPLAY_MAX_DEVICES);
+            sdrplay_api_UnlockDeviceApi();
          })
       );
 
@@ -62,13 +68,14 @@ static std::vector<SoapySDR::Kwargs> findSDRPlay(const SoapySDR::Kwargs &args)
       if (status == std::future_status::timeout) {
          SoapySDR_log(SOAPY_SDR_ERROR, "sdrplay_api_GetDevices() timed out - service is unresponsive");
          // Detach to prevent destructor blocking; shared_ptrs keep data alive
-         std::thread([getDevsFuture, rspDevs, nDevsPtr]() {
+         std::thread([getDevsFuture, rspDevs, nDevsPtr, errPtr]() {
             try { getDevsFuture->get(); } catch (...) {}
          }).detach();
          throw std::runtime_error("sdrplay_api_GetDevices() timed out");
       }
 
-      sdrplay_api_ErrT err = getDevsFuture->get();
+      getDevsFuture->get();  // Check for exceptions
+      sdrplay_api_ErrT err = *errPtr;
       nDevs = *nDevsPtr;
       if (err != sdrplay_api_Success) {
          SoapySDR_logf(SOAPY_SDR_ERROR, "sdrplay_api_GetDevices() failed: %s", sdrplay_api_GetErrorString(err));
