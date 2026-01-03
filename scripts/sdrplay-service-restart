@@ -49,18 +49,71 @@ case "$(uname -s)" in
         fi
 
         echo "Using plist: $PLIST"
-        echo "Stopping SDRplay API service..."
+        echo "Restarting SDRplay API service..."
 
-        # Kill any existing service processes
+        # Try SIGHUP first - this cleanly restarts the service without full teardown
+        # and often works when full restart doesn't
+        if pgrep -f sdrplay_apiService >/dev/null 2>&1; then
+            echo "Sending SIGHUP to service..."
+            pkill -HUP -f sdrplay_apiService 2>/dev/null || true
+            sleep 3
+
+            if pgrep -f sdrplay_apiService >/dev/null 2>&1; then
+                echo "SDRplay API service restarted via SIGHUP"
+                exit 0
+            fi
+        fi
+
+        # If SIGHUP didn't work, do full restart
+        echo "Full restart required..."
+
+        # First try graceful unload
+        launchctl bootout system/com.sdrplay.service 2>/dev/null || \
+            launchctl unload "$PLIST" 2>/dev/null || true
+
+        # Give it a moment to stop gracefully
+        sleep 1
+
+        # Force kill any remaining service processes
         killall -9 sdrplay_apiService 2>/dev/null || true
-        launchctl unload "$PLIST" 2>/dev/null || true
 
+        # Wait for process to fully exit
+        for i in 1 2 3 4 5; do
+            if ! pgrep -f sdrplay_apiService >/dev/null 2>&1; then
+                break
+            fi
+            sleep 1
+        done
+
+        # If still running, it's stuck - try harder
+        if pgrep -f sdrplay_apiService >/dev/null 2>&1; then
+            echo "Service stuck, forcing termination..."
+            pkill -9 -f sdrplay_apiService 2>/dev/null || true
+            sleep 2
+        fi
+
+        # Clear any stale lock files that might cause mutex issues
+        echo "Clearing stale lock files..."
+        rm -f /var/folders/*/*/T/*sdrplay*.lock 2>/dev/null || true
+        rm -f /tmp/*sdrplay* 2>/dev/null || true
+
+        # Wait for USB devices to settle
         sleep 2
 
         echo "Starting SDRplay API service..."
-        launchctl load "$PLIST"
+        launchctl bootstrap system "$PLIST" 2>/dev/null || \
+            launchctl load "$PLIST"
 
-        echo "SDRplay API service restarted successfully"
+        # Wait for service to initialize
+        sleep 3
+
+        # Verify service is running
+        if pgrep -f sdrplay_apiService >/dev/null 2>&1; then
+            echo "SDRplay API service restarted successfully"
+        else
+            echo "Warning: Service may not have started correctly"
+            exit 1
+        fi
         ;;
 
     Linux)

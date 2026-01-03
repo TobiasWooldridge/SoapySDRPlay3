@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# sdrplay-usb-reset - Power cycle an SDRplay USB device
+# sdrplay-usb-reset - Power cycle SDRplay USB devices and companion hubs
 #
 # This script is designed to be added to sudoers for passwordless execution:
 #
@@ -21,16 +21,44 @@
 #   sudo chmod 755 /usr/local/bin/sdrplay-usb-reset
 #
 # Usage:
-#   sdrplay-usb-reset [SERIAL]
+#   sdrplay-usb-reset [OPTIONS]
 #
-# If SERIAL is provided, only that device will be reset.
-# If no SERIAL is provided, all SDRplay devices will be reset.
+# Options:
+#   --aggressive    Also power cycle USB3 companion hubs and empty ports
+#   --all           Power cycle ALL controllable ports (nuclear option)
+#   --hub HUB       Power cycle specific hub (e.g., 2-1.1.4)
+#
+# If no options provided, only SDRplay devices will be reset.
 #
 
 set -e
 
-SERIAL="${1:-}"
+AGGRESSIVE=false
+RESET_ALL=false
+SPECIFIC_HUB=""
 SDRPLAY_VID="1df7"
+
+# Parse arguments
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --aggressive|-a)
+            AGGRESSIVE=true
+            shift
+            ;;
+        --all)
+            RESET_ALL=true
+            shift
+            ;;
+        --hub|-h)
+            SPECIFIC_HUB="$2"
+            shift 2
+            ;;
+        *)
+            # Legacy: treat as serial number (ignored for now)
+            shift
+            ;;
+    esac
+done
 
 # Check for uhubctl
 if ! command -v uhubctl &>/dev/null; then
@@ -38,124 +66,211 @@ if ! command -v uhubctl &>/dev/null; then
     exit 1
 fi
 
-# Find SDRplay devices
-find_sdrplay_devices() {
-    local devices=""
-
-    case "$(uname -s)" in
-        Darwin)
-            # macOS - use system_profiler
-            devices=$(system_profiler SPUSBDataType 2>/dev/null | grep -B5 "Vendor ID: 0x$SDRPLAY_VID" | grep "Location ID:" | awk '{print $3}' || true)
-            ;;
-        Linux)
-            # Linux - use lsusb
-            devices=$(lsusb -d "$SDRPLAY_VID:" 2>/dev/null | awk '{print $2 ":" $4}' | tr -d ':' || true)
-            ;;
-    esac
-
-    echo "$devices"
-}
-
-# Get uhubctl location for a device
-get_uhubctl_location() {
-    local target_vid="$SDRPLAY_VID"
-
-    # uhubctl -l lists devices with their hub locations
-    # We need to find which hub/port has our SDRplay device
-
-    # This is a simplified approach - uhubctl -a status will show all devices
-    local uhubctl_output
-    uhubctl_output=$(uhubctl -a status 2>/dev/null || true)
-
-    if [ -z "$uhubctl_output" ]; then
+# Find hub path for a device based on uhubctl output
+# USB3 devices often have a companion USB2 hub (e.g., 2-1.1.4 has companion 1-1.1.4)
+get_companion_hub() {
+    local hub="$1"
+    # USB3 hubs typically start with 2-, companion USB2 starts with 1-
+    # And vice versa
+    if [[ "$hub" == 2-* ]]; then
+        echo "${hub/2-/1-}"
+    elif [[ "$hub" == 1-* ]]; then
+        echo "${hub/1-/2-}"
+    else
         echo ""
-        return
     fi
-
-    # Parse uhubctl output to find SDRplay devices
-    # Format varies, but typically shows vendor:product IDs
-    echo "$uhubctl_output" | grep -i "$SDRPLAY_VID" | head -1 | awk '{print $1}' || true
 }
 
-# Power cycle a USB port
-power_cycle_port() {
-    local location="$1"
-    local port="$2"
+# Power cycle a specific hub (all ports)
+power_cycle_hub() {
+    local hub="$1"
+    local wait_time="${2:-3}"
 
-    echo "Power cycling USB port (location: $location, port: $port)..."
+    echo "Power cycling hub $hub..."
 
-    # Turn off
-    uhubctl -l "$location" -p "$port" -a off 2>/dev/null
+    # Turn off all ports
+    if uhubctl -l "$hub" -a off 2>/dev/null; then
+        sleep "$wait_time"
+        # Turn on all ports
+        uhubctl -l "$hub" -a on 2>/dev/null
+        echo "  Hub $hub power cycled"
+        return 0
+    else
+        echo "  Hub $hub not found or not controllable"
+        return 1
+    fi
+}
 
-    # Wait for power off
-    sleep 2
+# Find all hubs containing SDRplay devices
+find_sdrplay_hubs() {
+    local uhubctl_status="$1"
+    local current_hub=""
+    local sdrplay_hubs=""
 
-    # Turn on
-    uhubctl -l "$location" -p "$port" -a on 2>/dev/null
+    while IFS= read -r line; do
+        # Match hub header lines like "Current status for hub 2-1.1.4"
+        if [[ "$line" =~ "Current status for hub "([0-9.-]+) ]]; then
+            current_hub="${BASH_REMATCH[1]}"
+        fi
+        # Check if this line contains an SDRplay device
+        if [[ "$line" =~ $SDRPLAY_VID ]] && [ -n "$current_hub" ]; then
+            if [[ ! "$sdrplay_hubs" =~ "$current_hub" ]]; then
+                sdrplay_hubs="$sdrplay_hubs $current_hub"
+            fi
+        fi
+    done <<< "$uhubctl_status"
 
-    # Wait for device to re-enumerate
-    sleep 3
+    echo "$sdrplay_hubs"
+}
 
-    echo "USB port power cycled successfully"
+# Find all hubs with empty/inactive ports (Rx.Detect, power but no device)
+find_empty_hubs() {
+    local uhubctl_status="$1"
+    local current_hub=""
+    local empty_hubs=""
+
+    while IFS= read -r line; do
+        # Match hub header lines
+        if [[ "$line" =~ "Current status for hub "([0-9.-]+) ]]; then
+            current_hub="${BASH_REMATCH[1]}"
+        fi
+        # Look for ports with power but no device (Rx.Detect or similar)
+        # These show up as ports with power but without a vendor:product ID
+        if [[ "$line" =~ "power" ]] && [[ ! "$line" =~ [0-9a-f]{4}:[0-9a-f]{4} ]] && [ -n "$current_hub" ]; then
+            if [[ ! "$empty_hubs" =~ "$current_hub" ]]; then
+                empty_hubs="$empty_hubs $current_hub"
+            fi
+        fi
+    done <<< "$uhubctl_status"
+
+    echo "$empty_hubs"
 }
 
 # Main logic
 main() {
-    echo "Looking for SDRplay devices (VID: $SDRPLAY_VID)..."
+    echo "SDRplay USB Reset Tool"
+    echo "======================"
+    echo ""
 
     # First, list what uhubctl can see
     local uhubctl_status
     uhubctl_status=$(uhubctl -a status 2>&1 || true)
 
     if echo "$uhubctl_status" | grep -qi "no compatible"; then
-        echo "Warning: No compatible USB hubs found. Power switching may not be supported." >&2
+        echo "Error: No compatible USB hubs found." >&2
         echo "See https://github.com/mvp/uhubctl for compatible hub list." >&2
         exit 1
     fi
 
-    # Try to find SDRplay device in uhubctl output
-    local sdrplay_line
-    sdrplay_line=$(echo "$uhubctl_status" | grep -i "$SDRPLAY_VID" || true)
-
-    if [ -z "$sdrplay_line" ]; then
-        echo "No SDRplay devices found in uhubctl-compatible hubs."
+    # Handle specific hub request
+    if [ -n "$SPECIFIC_HUB" ]; then
+        echo "Power cycling specific hub: $SPECIFIC_HUB"
+        power_cycle_hub "$SPECIFIC_HUB" 3
         echo ""
-        echo "Current uhubctl status:"
-        echo "$uhubctl_status"
-        echo ""
-        echo "If your SDRplay device is connected but not shown, it may be on a hub"
-        echo "that doesn't support per-port power switching."
-        exit 1
+        echo "Done. You may need to restart the SDRplay service:"
+        echo "  sudo sdrplay-service-restart"
+        exit 0
     fi
 
-    # Extract location from the line (format varies by uhubctl version)
-    # Typically looks like: "  Port N: 04fe power [...]"
-    # with "Current status for hub X-Y" before it
-
-    # Try simpler approach: power cycle all SDRplay devices found
-    echo "Found SDRplay device(s). Power cycling..."
-
-    # Use uhubctl to search and power cycle by vendor ID
-    # uhubctl -a cycle will power off then on
-    uhubctl -a cycle -s "$SDRPLAY_VID" 2>/dev/null || {
-        # If -s flag not supported, try alternate approach
-        echo "Direct vendor search not supported, using alternate method..."
-
-        # Power cycle all ports that uhubctl can control
-        # This is a last resort and will affect other devices
-        echo "Warning: This will power cycle all controllable USB ports!"
+    # Handle reset all
+    if [ "$RESET_ALL" = true ]; then
+        echo "WARNING: Power cycling ALL controllable USB ports!"
+        echo "This will temporarily disconnect all USB devices on controllable hubs."
+        echo ""
         read -r -p "Continue? [y/N] " response
-        if [[ "$response" =~ ^[Yy]$ ]]; then
-            uhubctl -a cycle
-        else
+        if [[ ! "$response" =~ ^[Yy]$ ]]; then
             echo "Aborted."
             exit 1
         fi
-    }
+        echo ""
+        echo "Turning off all USB ports..."
+        uhubctl -a off 2>/dev/null || true
+        sleep 3
+        echo "Turning on all USB ports..."
+        uhubctl -a on 2>/dev/null || true
+        sleep 3
+        echo ""
+        echo "All ports power cycled."
+        echo "You may need to restart the SDRplay service:"
+        echo "  sudo sdrplay-service-restart"
+        exit 0
+    fi
+
+    echo "Looking for SDRplay devices (VID: $SDRPLAY_VID)..."
+    echo ""
+
+    # Find SDRplay devices
+    local sdrplay_hubs
+    sdrplay_hubs=$(find_sdrplay_hubs "$uhubctl_status")
+
+    if [ -z "$sdrplay_hubs" ]; then
+        echo "No SDRplay devices found in uhubctl-compatible hubs."
+        echo ""
+        if [ "$AGGRESSIVE" = true ]; then
+            echo "Aggressive mode: Looking for empty/inactive USB ports..."
+            local empty_hubs
+            empty_hubs=$(find_empty_hubs "$uhubctl_status")
+            if [ -n "$empty_hubs" ]; then
+                echo "Found hubs with inactive ports:$empty_hubs"
+                for hub in $empty_hubs; do
+                    power_cycle_hub "$hub" 2
+                done
+            fi
+        else
+            echo "Current uhubctl status:"
+            echo "$uhubctl_status"
+            echo ""
+            echo "Tip: Use --aggressive to also power cycle empty/inactive ports"
+            echo "     Use --all to power cycle everything (nuclear option)"
+        fi
+        exit 1
+    fi
+
+    echo "Found SDRplay device(s) on hubs:$sdrplay_hubs"
+    echo ""
+
+    # Power cycle hubs with SDRplay devices
+    for hub in $sdrplay_hubs; do
+        power_cycle_hub "$hub" 2
+
+        # In aggressive mode, also cycle companion hub
+        if [ "$AGGRESSIVE" = true ]; then
+            local companion
+            companion=$(get_companion_hub "$hub")
+            if [ -n "$companion" ]; then
+                echo "  Also cycling companion hub: $companion"
+                power_cycle_hub "$companion" 2 || true
+            fi
+        fi
+    done
+
+    # In aggressive mode, also cycle hubs with empty ports
+    if [ "$AGGRESSIVE" = true ]; then
+        echo ""
+        echo "Aggressive mode: Checking for empty/inactive USB ports..."
+        local empty_hubs
+        empty_hubs=$(find_empty_hubs "$uhubctl_status")
+
+        for hub in $empty_hubs; do
+            # Skip if we already cycled this hub
+            if [[ ! "$sdrplay_hubs" =~ "$hub" ]]; then
+                echo "  Cycling hub with empty ports: $hub"
+                power_cycle_hub "$hub" 2 || true
+            fi
+        done
+    fi
+
+    # Wait for devices to re-enumerate
+    echo ""
+    echo "Waiting for devices to re-enumerate..."
+    sleep 3
 
     echo ""
-    echo "USB reset complete. Wait a few seconds for device to re-enumerate."
-    echo "You may need to restart the SDRplay service: sdrplay-service-restart"
+    echo "USB reset complete."
+    echo ""
+    echo "Next steps:"
+    echo "  1. Restart the SDRplay service: sudo sdrplay-service-restart"
+    echo "  2. Test device: SoapySDRUtil --probe=\"driver=sdrplay\""
 }
 
 main "$@"
