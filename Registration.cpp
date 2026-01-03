@@ -36,21 +36,16 @@ static std::vector<SoapySDR::Kwargs> findSDRPlay(const SoapySDR::Kwargs &args)
    std::vector<SoapySDR::Kwargs> results;
    unsigned int nDevs = 0;
 
-   fprintf(stderr, "[SDRplay] findSDRPlay: starting\n"); fflush(stderr);
 
    // Protect access to _cachedResults throughout the function
    std::lock_guard<std::mutex> cacheLock(_cachedResultsMutex);
 
-   fprintf(stderr, "[SDRplay] findSDRPlay: acquired cache lock\n"); fflush(stderr);
 
    try {
    // list devices by API
-   fprintf(stderr, "[SDRplay] findSDRPlay: calling get_instance()\n"); fflush(stderr);
    SoapySDRPlay::sdrplay_api::get_instance();
-   fprintf(stderr, "[SDRplay] findSDRPlay: got instance\n"); fflush(stderr);
    {
       SdrplayApiLockGuard apiLock(SDRPLAY_API_TIMEOUT_MS);
-      fprintf(stderr, "[SDRplay] findSDRPlay: acquired API lock, calling GetDevices\n"); fflush(stderr);
 
       // Use shared_ptr for device array so it survives if async times out
       auto rspDevs = std::make_shared<std::array<sdrplay_api_DeviceT, SDRPLAY_MAX_DEVICES>>();
@@ -65,7 +60,6 @@ static std::vector<SoapySDR::Kwargs> findSDRPlay(const SoapySDR::Kwargs &args)
 
       auto status = getDevsFuture->wait_for(std::chrono::milliseconds(SDRPLAY_API_TIMEOUT_MS));
       if (status == std::future_status::timeout) {
-         fprintf(stderr, "[SDRplay] findSDRPlay: GetDevices timed out\n"); fflush(stderr);
          SoapySDR_log(SOAPY_SDR_ERROR, "sdrplay_api_GetDevices() timed out - service is unresponsive");
          // Detach to prevent destructor blocking; shared_ptrs keep data alive
          std::thread([getDevsFuture, rspDevs, nDevsPtr]() {
@@ -76,7 +70,6 @@ static std::vector<SoapySDR::Kwargs> findSDRPlay(const SoapySDR::Kwargs &args)
 
       sdrplay_api_ErrT err = getDevsFuture->get();
       nDevs = *nDevsPtr;
-      fprintf(stderr, "[SDRplay] findSDRPlay: GetDevices returned %d, nDevs=%u\n", err, nDevs); fflush(stderr);
       if (err != sdrplay_api_Success) {
          SoapySDR_logf(SOAPY_SDR_ERROR, "sdrplay_api_GetDevices() failed: %s", sdrplay_api_GetErrorString(err));
          throw std::runtime_error("sdrplay_api_GetDevices() failed");
@@ -200,12 +193,10 @@ static std::vector<SoapySDR::Kwargs> findSDRPlay(const SoapySDR::Kwargs &args)
    }
 
    } catch (const std::exception &e) {
-      fprintf(stderr, "[SDRplay] findSDRPlay: exception: %s\n", e.what()); fflush(stderr);
       SoapySDR_logf(SOAPY_SDR_ERROR, "SDRplay enumeration failed: %s", e.what());
       // Return cached results on error (may be empty)
    }
 
-   fprintf(stderr, "[SDRplay] findSDRPlay: returning\n"); fflush(stderr);
    return results;
 }
 
