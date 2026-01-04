@@ -1,24 +1,63 @@
 # Soapy SDR module for SDRPlay
 
+This is a fork of [pothosware/SoapySDRPlay3](https://github.com/pothosware/SoapySDRPlay3) with additional features, bug fixes, and stability improvements.
+
 ## Documentation
 
 * https://github.com/TobiasWooldridge/SoapySDRPlay3/wiki
 
 ## Dependencies
 
-* SDRplay API - download (and install) SDRplay API from - https://www.sdrplay.com/downloads - NOTE: the current version of this module requires SDRplay API V3.15 or later
-* SoapySDR - https://github.com/TobiasWooldridge/SoapySDR (fork with antenna persistence API and other enhancements)
-  * Upstream: https://github.com/pothosware/SoapySDR
+* SDRplay API v3.15+ - download from https://www.sdrplay.com/downloads
+* SoapySDR - https://github.com/pothosware/SoapySDR
 
-## Notable enhancements in this repo
+## Differences from Upstream
 
-* Hardware/API support updates: SDRplay API v3.14/v3.15, RSP1B, RSPdx-R2, HDR mode + HDR bandwidth controls
-* Device discovery/selection: serial/mode filters, claimed-device enumeration for multi-client SoapyRemote, clearer error logging
-* RSPduo handling: mode-specific device selection, tuner/antenna switching safeguards, master/slave coordination
-* Gain/bandwidth controls: overall gain API (LNA/IFGR distribution), RF gain range fixes, AGC set point handling, expanded sample rates/ranges
-* Streaming stability/performance: safer teardown, deadlock/race fixes, buffer alignment, ring buffer hot-path optimizations, update serialization
-* Antenna persistence per device (stored under config dir; override with `antenna=` device arg)
-* Build/debug options: USB bulk mode option, serial-in-log option, release optimization flags, uninstall target, improved logging/troubleshooting
+This fork includes several enhancements over the upstream pothosware/SoapySDRPlay3 repository. We aim to contribute improvements back upstream where appropriate.
+
+### Multi-Device Support (Experimental)
+
+The SDRplay API has a fundamental limitation: only one process can use the API at a time. This fork includes an experimental subprocess proxy architecture that works around this limitation:
+
+```bash
+# Enable multi-device mode
+export SOAPY_SDRPLAY_MULTIDEV=1
+```
+
+When enabled, each device runs in a separate worker subprocess with:
+- IPC command/status messaging via Unix pipes
+- Lock-free shared memory ring buffer for streaming data
+- Cross-process mutex for API call serialization
+
+This allows multiple SDRplay devices to be used simultaneously from a single application.
+
+### Accurate Gain Tables
+
+The upstream driver uses a linear approximation for LNA gain that can be significantly inaccurate. This fork includes complete per-device, per-frequency LNA gain reduction tables from the SDRplay documentation:
+
+| Device | Upstream Max Gain | Actual Max Gain | Improvement |
+|--------|-------------------|-----------------|-------------|
+| RSP1A @ 100 MHz | ~27 dB | 62 dB | +35 dB accuracy |
+| RSPdx @ 100 MHz | ~27 dB | 84 dB | +57 dB accuracy |
+
+The `setGain()` API now correctly maps requested gain to optimal LNA/IF combinations, and `getGainRange()` returns frequency-dependent valid ranges.
+
+### Sample Gap Detection
+
+Streaming callbacks now track `firstSampleNum` to detect when samples are dropped, logging warnings when discontinuities occur. This helps diagnose streaming issues.
+
+### Service Timeout Protection
+
+All blocking SDRplay API calls are wrapped with timeout protection to prevent indefinite hangs when the service becomes unresponsive. Includes automatic service health tracking and recovery attempts.
+
+### Additional Enhancements
+
+* **Hardware support**: RSP1B, RSPdx-R2, HDR mode with bandwidth controls
+* **Device discovery**: Serial/mode filters, claimed-device enumeration for multi-client SoapyRemote
+* **RSPduo**: Mode-specific device selection (ST/DT/MA/MA8/SL pseudo-devices), tuner switching safeguards, master/slave coordination
+* **Streaming stability**: Safer teardown, deadlock/race fixes, ring buffer hot-path optimizations
+* **Antenna persistence**: Per-device antenna settings stored under config dir
+* **Build options**: USB bulk mode, serial-in-log, release optimizations, uninstall target
 
 ## Testing
 
