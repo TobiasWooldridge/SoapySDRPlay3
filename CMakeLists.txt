@@ -82,6 +82,13 @@ IF(SHOW_SERIAL_NUMBER_IN_MESSAGES)
     ADD_DEFINITIONS( -DSHOW_SERIAL_NUMBER_IN_MESSAGES )
 ENDIF()
 
+# Subprocess-based multi-device support
+# Each SDRplay device can run in its own subprocess, bypassing the
+# SDRplay API's single-device-per-process limitation.
+# This is always built-in; users enable it at runtime via SOAPY_SDRPLAY_MULTIDEV=1
+ADD_DEFINITIONS(-DENABLE_SUBPROCESS_MULTIDEV=1)
+message(STATUS "Subprocess multi-device support: ENABLED (always built-in)")
+
 set(SDRPLAY_SOURCES
     SoapySDRPlay.hpp
     Registration.cpp
@@ -96,6 +103,49 @@ set(SDRPLAY_SOURCES
     Streaming.cpp
     HealthMonitor.cpp
 )
+
+# Subprocess multi-device sources (always included)
+list(APPEND SDRPLAY_SOURCES
+    SDRplayLock.hpp
+    SDRplayLock.cpp
+    RingBuffer.hpp
+    RingBuffer.cpp
+    IPCPipe.hpp
+    IPCPipe.cpp
+    SoapySDRPlayWorker.hpp
+    SoapySDRPlayWorker.cpp
+    SoapySDRPlayProxy.hpp
+    SoapySDRPlayProxy.cpp
+)
+
+# Build worker executable for subprocess mode
+add_executable(sdrplay_worker
+    sdrplay_worker_main.cpp
+    SoapySDRPlayWorker.cpp
+    SDRplayLock.cpp
+    RingBuffer.cpp
+    IPCPipe.cpp
+)
+target_include_directories(sdrplay_worker PRIVATE ${SoapySDR_INCLUDE_DIRS} ${LIBSDRPLAY_INCLUDE_DIRS})
+target_link_libraries(sdrplay_worker PRIVATE ${SoapySDR_LIBRARIES} ${LIBSDRPLAY_LIBRARIES})
+target_compile_definitions(sdrplay_worker PRIVATE ENABLE_SUBPROCESS_MULTIDEV=1)
+
+# Set rpath for worker to find libraries at runtime
+if(APPLE)
+    # On macOS, include Homebrew paths (both Intel and Apple Silicon)
+    set_target_properties(sdrplay_worker PROPERTIES
+        INSTALL_RPATH "/usr/local/lib;/opt/homebrew/lib;${CMAKE_INSTALL_PREFIX}/lib"
+        BUILD_WITH_INSTALL_RPATH TRUE
+    )
+else()
+    set_target_properties(sdrplay_worker PROPERTIES
+        INSTALL_RPATH "${CMAKE_INSTALL_PREFIX}/lib"
+        BUILD_WITH_INSTALL_RPATH TRUE
+    )
+endif()
+
+# Install worker executable to same location as module
+install(TARGETS sdrplay_worker DESTINATION lib/SoapySDR/modules${SOAPY_SDR_ABI_VERSION})
 
 # Optional: Build unit tests (logic-only, no SDRplay hardware required)
 option(ENABLE_TESTS "Build unit tests" OFF)

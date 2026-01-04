@@ -28,6 +28,9 @@
 #include <exception>
 #include <future>
 
+// Defined in Registration.cpp - clears cached device results
+extern void clearCachedDeviceResults();
+
 #if defined(_M_X64) || defined(_M_IX86)
 #define strcasecmp _stricmp
 #elif defined (__GNUC__)
@@ -43,14 +46,12 @@
 
 // Call sdrplay_api_GetDeviceParams with timeout protection
 // Returns the result if completed in time, or sdrplay_api_Fail on timeout
+// NOTE: The API lock is NOT required for GetDeviceParams - lock is only for device enumeration/selection
 static sdrplay_api_ErrT getDeviceParamsWithTimeout(HANDLE dev, sdrplay_api_DeviceParamsT **deviceParams, unsigned int timeoutMs)
 {
     auto getParamsFuture = std::make_shared<std::future<sdrplay_api_ErrT>>(
         std::async(std::launch::async, [dev, deviceParams]() {
-            sdrplay_api_LockDeviceApi();
-            sdrplay_api_ErrT result = sdrplay_api_GetDeviceParams(dev, deviceParams);
-            sdrplay_api_UnlockDeviceApi();
-            return result;
+            return sdrplay_api_GetDeviceParams(dev, deviceParams);
         })
     );
 
@@ -74,47 +75,32 @@ static sdrplay_api_ErrT getDeviceParamsWithTimeout(HANDLE dev, sdrplay_api_Devic
 
 // Call sdrplay_api_SelectDevice with timeout protection
 // Returns the result if completed in time, or sdrplay_api_Fail on timeout
-static sdrplay_api_ErrT selectDeviceWithTimeout(sdrplay_api_DeviceT *device, unsigned int timeoutMs)
+// NOTE: Caller must NOT hold the API lock - this function acquires it
+static sdrplay_api_ErrT selectDeviceWithTimeout(sdrplay_api_DeviceT *device, unsigned int /* timeoutMs */)
 {
-    auto selectFuture = std::make_shared<std::future<sdrplay_api_ErrT>>(
-        std::async(std::launch::async, [device]() {
-            sdrplay_api_LockDeviceApi();
-            sdrplay_api_ErrT result = sdrplay_api_SelectDevice(device);
-            sdrplay_api_UnlockDeviceApi();
-            return result;
-        })
-    );
+    // DEBUG: Try synchronous call to isolate async issue
+    ::SoapySDR_log(SOAPY_SDR_INFO, "selectDeviceWithTimeout: acquiring lock synchronously");
+    sdrplay_api_LockDeviceApi();
+    ::SoapySDR_log(SOAPY_SDR_INFO, "selectDeviceWithTimeout: lock acquired, calling SelectDevice");
+    sdrplay_api_ErrT result = sdrplay_api_SelectDevice(device);
+    ::SoapySDR_logf(SOAPY_SDR_INFO, "selectDeviceWithTimeout: SelectDevice returned %d", result);
+    sdrplay_api_UnlockDeviceApi();
+    ::SoapySDR_log(SOAPY_SDR_INFO, "selectDeviceWithTimeout: lock released");
 
-    auto status = selectFuture->wait_for(std::chrono::milliseconds(timeoutMs));
-    if (status == std::future_status::timeout) {
-        ::SoapySDR_logf(SOAPY_SDR_ERROR, "sdrplay_api_SelectDevice() timed out after %u ms", timeoutMs);
-        ::SoapySDR_log(SOAPY_SDR_ERROR, "Service may be unresponsive.");
-        recordApiTimeout();
-
-        // Detach cleanup thread so we don't block
-        std::thread([selectFuture]() {
-            try { selectFuture->get(); } catch (...) {}
-        }).detach();
-
-        return sdrplay_api_Fail;
+    if (result == sdrplay_api_Success) {
+        recordApiSuccess();
     }
-
-    recordApiSuccess();
-    return selectFuture->get();
+    return result;
 }
 
 // Call sdrplay_api_ReleaseDevice with timeout protection
 // Returns the result if completed in time, or sdrplay_api_Fail on timeout
+// NOTE: The API lock is NOT required for ReleaseDevice - lock is only for device enumeration/selection
 static sdrplay_api_ErrT releaseDeviceWithTimeout(sdrplay_api_DeviceT *device, unsigned int timeoutMs)
 {
-    // We need to acquire the lock in the async thread to avoid thread-safety issues
-    // with the thread-local lock depth counter
     auto releaseFuture = std::make_shared<std::future<sdrplay_api_ErrT>>(
         std::async(std::launch::async, [device]() {
-            sdrplay_api_LockDeviceApi();
-            sdrplay_api_ErrT result = sdrplay_api_ReleaseDevice(device);
-            sdrplay_api_UnlockDeviceApi();
-            return result;
+            return sdrplay_api_ReleaseDevice(device);
         })
     );
 
@@ -157,9 +143,10 @@ static std::mutex selectedRSPDevices_mutex;
 static std::mutex g_deviceSelectionMutex;
 
 // Retry parameters for transient API errors
-static constexpr int MAX_SELECT_RETRIES = 3;
-static constexpr int RETRY_BASE_DELAY_MS = 100;
-static constexpr int POST_SELECT_DELAY_MS = 50;  // Delay after selection to let API stabilize
+// The SDRplay API service needs time to stabilize between concurrent operations
+static constexpr int MAX_SELECT_RETRIES = 5;
+static constexpr int RETRY_BASE_DELAY_MS = 200;
+static constexpr int POST_SELECT_DELAY_MS = 100;  // Delay after selection to let API stabilize
 
 // Claimed serials tracking with thread-safe access
 static std::set<std::string> g_claimedSerials;
@@ -317,6 +304,10 @@ void SoapySDRPlay::selectDevice(const std::string &serial,
                                 const std::string &mode,
                                 const std::string &antenna)
 {
+    // Check service health before attempting device selection
+    // This prevents long timeouts when service is already known to be unresponsive
+    ensureServiceResponsive();
+
     serNo = serial;
     rspDeviceId = serial;
     if (mode == "SL") {
@@ -474,86 +465,115 @@ void SoapySDRPlay::selectDevice(sdrplay_api_TunerSelectT tuner,
     {
         try
         {
-            SdrplayApiLockGuard apiLock(SDRPLAY_API_TIMEOUT_MS);
-            sdrplay_api_DeviceT rspDevs[SDRPLAY_MAX_DEVICES];
-            sdrplay_api_GetDevices(&rspDevs[0], &nDevs, SDRPLAY_MAX_DEVICES);
-
-            SoapySDR_logf(SOAPY_SDR_INFO, "selectDevice: GetDevices returned %u devices", nDevs);
-
-            unsigned devIdx = SDRPLAY_MAX_DEVICES;
-            for (unsigned int i = 0; i < nDevs; i++)
+            // Scope for API lock - GetDevices and device lookup
+            // Lock is released before SelectDevice to avoid deadlock with async timeout wrapper
             {
-                SoapySDR_logf(SOAPY_SDR_INFO, "  [%u] SerNo=%s hwVer=%d valid=%d dev=%p",
-                              i, rspDevs[i].SerNo, rspDevs[i].hwVer, rspDevs[i].valid, (void*)rspDevs[i].dev);
-                if (!rspDevs[i].valid) continue;
-                if (rspDevs[i].SerNo == serNo) devIdx = i;
-            }
-            if (devIdx == SDRPLAY_MAX_DEVICES) {
-                SoapySDR_log(SOAPY_SDR_ERROR, "no sdrplay device matches");
-                throw std::runtime_error("no sdrplay device matches");
-            }
+                SdrplayApiLockGuard apiLock(SDRPLAY_API_TIMEOUT_MS);
+                sdrplay_api_DeviceT rspDevs[SDRPLAY_MAX_DEVICES];
+                sdrplay_api_GetDevices(&rspDevs[0], &nDevs, SDRPLAY_MAX_DEVICES);
 
-            device = rspDevs[devIdx];
-            hwVer = device.hwVer;
+                SoapySDR_logf(SOAPY_SDR_INFO, "selectDevice: GetDevices returned %u devices", nDevs);
 
-            SoapySDR_logf(SOAPY_SDR_INFO, "selectDevice: selected devIdx=%d", devIdx);
-            SoapySDR_logf(SOAPY_SDR_INFO, "selectDevice: SerNo=%s", device.SerNo);
-            SoapySDR_logf(SOAPY_SDR_INFO, "selectDevice: hwVer=%d", device.hwVer);
-            SoapySDR_logf(SOAPY_SDR_INFO, "selectDevice: dev handle=%p", (void*)device.dev);
-
-            if (hwVer == SDRPLAY_RSPduo_ID && rspDuoMode != sdrplay_api_RspDuoMode_Slave)
-            {
-                if ((rspDuoMode & device.rspDuoMode) != rspDuoMode)
+                // If no devices found, this is likely a transient state after device release
+                // Retry with backoff to allow the service to recover
+                if (nDevs == 0 && retryCount < MAX_SELECT_RETRIES)
                 {
-                    throw std::runtime_error("sdrplay RSPduo mode not available");
+                    retryCount++;
+                    int delayMs = RETRY_BASE_DELAY_MS * (1 << (retryCount - 1));  // Exponential backoff
+                    SoapySDR_logf(SOAPY_SDR_WARNING,
+                        "GetDevices returned 0 devices (attempt %d/%d), retrying in %dms",
+                        retryCount, MAX_SELECT_RETRIES, delayMs);
+                    std::this_thread::sleep_for(std::chrono::milliseconds(delayMs));
+                    continue;  // Retry the entire selection process
+                }
+
+                unsigned devIdx = SDRPLAY_MAX_DEVICES;
+                for (unsigned int i = 0; i < nDevs; i++)
+                {
+                    SoapySDR_logf(SOAPY_SDR_INFO, "  [%u] SerNo=%s hwVer=%d valid=%d dev=%p",
+                                  i, rspDevs[i].SerNo, rspDevs[i].hwVer, rspDevs[i].valid, (void*)rspDevs[i].dev);
+                    if (!rspDevs[i].valid) continue;
+                    if (rspDevs[i].SerNo == serNo) devIdx = i;
+                }
+                if (devIdx == SDRPLAY_MAX_DEVICES) {
+                    // Device not in list - may be stale enumeration after recent release
+                    if (retryCount < MAX_SELECT_RETRIES)
+                    {
+                        retryCount++;
+                        int delayMs = RETRY_BASE_DELAY_MS * (1 << (retryCount - 1));
+                        SoapySDR_logf(SOAPY_SDR_WARNING,
+                            "Device %s not in enumeration (attempt %d/%d), retrying in %dms",
+                            serNo.c_str(), retryCount, MAX_SELECT_RETRIES, delayMs);
+                        std::this_thread::sleep_for(std::chrono::milliseconds(delayMs));
+                        continue;  // Retry enumeration
+                    }
+                    SoapySDR_log(SOAPY_SDR_ERROR, "no sdrplay device matches");
+                    throw std::runtime_error("no sdrplay device matches");
+                }
+
+                device = rspDevs[devIdx];
+                hwVer = device.hwVer;
+
+                SoapySDR_logf(SOAPY_SDR_INFO, "selectDevice: selected devIdx=%d", devIdx);
+                SoapySDR_logf(SOAPY_SDR_INFO, "selectDevice: SerNo=%s", device.SerNo);
+                SoapySDR_logf(SOAPY_SDR_INFO, "selectDevice: hwVer=%d", device.hwVer);
+                SoapySDR_logf(SOAPY_SDR_INFO, "selectDevice: dev handle=%p", (void*)device.dev);
+
+                if (hwVer == SDRPLAY_RSPduo_ID && rspDuoMode != sdrplay_api_RspDuoMode_Slave)
+                {
+                    if ((rspDuoMode & device.rspDuoMode) != rspDuoMode)
+                    {
+                        throw std::runtime_error("sdrplay RSPduo mode not available");
+                    }
+                    else
+                    {
+                        device.rspDuoMode = rspDuoMode;
+                    }
+                    if ((tuner & device.tuner) != tuner)
+                    {
+                        throw std::runtime_error("sdrplay RSPduo tuner not available");
+                    }
+                    else
+                    {
+                        device.tuner = tuner;
+                    }
+                    if (rspDuoSampleFreq != 0)
+                    {
+                        device.rspDuoSampleFreq = rspDuoSampleFreq;
+                    }
+                }
+                else if (hwVer == SDRPLAY_RSPduo_ID && rspDuoMode == sdrplay_api_RspDuoMode_Slave)
+                {
+                    if (rspDuoMode != device.rspDuoMode)
+                    {
+                        throw std::runtime_error("sdrplay RSPduo slave mode not available");
+                    }
+                    if (tuner != sdrplay_api_Tuner_Neither && tuner != device.tuner)
+                    {
+                        throw std::runtime_error("sdrplay RSPduo tuner not available in slave mode");
+                    }
+                    if (rspDuoSampleFreq != 0 && rspDuoSampleFreq != device.rspDuoSampleFreq)
+                    {
+                        throw std::runtime_error("sdrplay RSPduo sample rate not available in slace mode");
+                    }
                 }
                 else
                 {
-                    device.rspDuoMode = rspDuoMode;
+                    if (rspDuoMode != sdrplay_api_RspDuoMode_Unknown || tuner != sdrplay_api_Tuner_Neither)
+                    {
+                        throw std::runtime_error("sdrplay RSP does not support RSPduo mode or tuner");
+                    }
                 }
-                if ((tuner & device.tuner) != tuner)
-                {
-                    throw std::runtime_error("sdrplay RSPduo tuner not available");
-                }
-                else
-                {
-                    device.tuner = tuner;
-                }
-                if (rspDuoSampleFreq != 0)
-                {
-                    device.rspDuoSampleFreq = rspDuoSampleFreq;
-                }
-            }
-            else if (hwVer == SDRPLAY_RSPduo_ID && rspDuoMode == sdrplay_api_RspDuoMode_Slave)
-            {
-                if (rspDuoMode != device.rspDuoMode)
-                {
-                    throw std::runtime_error("sdrplay RSPduo slave mode not available");
-                }
-                if (tuner != sdrplay_api_Tuner_Neither && tuner != device.tuner)
-                {
-                    throw std::runtime_error("sdrplay RSPduo tuner not available in slave mode");
-                }
-                if (rspDuoSampleFreq != 0 && rspDuoSampleFreq != device.rspDuoSampleFreq)
-                {
-                    throw std::runtime_error("sdrplay RSPduo sample rate not available in slace mode");
-                }
-            }
-            else
-            {
-                if (rspDuoMode != sdrplay_api_RspDuoMode_Unknown || tuner != sdrplay_api_Tuner_Neither)
-                {
-                    throw std::runtime_error("sdrplay RSP does not support RSPduo mode or tuner");
-                }
-            }
 
-            SoapySDR_logf(SOAPY_SDR_INFO, "selectDevice: rspDuoMode=%d", device.rspDuoMode);
-            SoapySDR_logf(SOAPY_SDR_INFO, "selectDevice: tuner=%d", device.tuner);
-            SoapySDR_logf(SOAPY_SDR_INFO, "selectDevice: rspDuoSampleFreq=%lf", device.rspDuoSampleFreq);
+                SoapySDR_logf(SOAPY_SDR_INFO, "selectDevice: rspDuoMode=%d", device.rspDuoMode);
+                SoapySDR_logf(SOAPY_SDR_INFO, "selectDevice: tuner=%d", device.tuner);
+                SoapySDR_logf(SOAPY_SDR_INFO, "selectDevice: rspDuoSampleFreq=%lf", device.rspDuoSampleFreq);
+            } // API lock released here
 
+            SoapySDR_log(SOAPY_SDR_INFO, "selectDevice: API lock released, about to call selectDeviceWithTimeout");
             SoapySDR_logf(SOAPY_SDR_INFO, "selectDevice: calling sdrplay_api_SelectDevice for serial=%s dev=%p",
                           device.SerNo, (void*)device.dev);
-            // Use timeout-protected wrapper to prevent hanging if service is unresponsive
+            // Use timeout-protected wrapper - acquires its own lock in async thread
             err = selectDeviceWithTimeout(&device, SDRPLAY_API_TIMEOUT_MS);
             if (err != sdrplay_api_Success)
             {
@@ -661,6 +681,9 @@ void SoapySDRPlay::releaseDevice()
                 throw std::runtime_error("ReleaseDevice() failed");
             }
         }
+        // Clear cached device results to force fresh enumeration next time
+        // This ensures the service's enumeration cache is refreshed after device release
+        clearCachedDeviceResults();
     }
 
     return;

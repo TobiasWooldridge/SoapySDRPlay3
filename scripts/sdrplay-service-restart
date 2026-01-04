@@ -19,6 +19,14 @@
 
 set -e
 
+# Parse arguments
+FORCE_RESTART=false
+for arg in "$@"; do
+    case "$arg" in
+        --force|-f) FORCE_RESTART=true ;;
+    esac
+done
+
 # Detect platform and restart service
 case "$(uname -s)" in
     Darwin)
@@ -51,9 +59,8 @@ case "$(uname -s)" in
         echo "Using plist: $PLIST"
         echo "Restarting SDRplay API service..."
 
-        # Try SIGHUP first - this cleanly restarts the service without full teardown
-        # and often works when full restart doesn't
-        if pgrep -f sdrplay_apiService >/dev/null 2>&1; then
+        # Try SIGHUP first (unless --force), then verify responsiveness
+        if [ "$FORCE_RESTART" = false ] && pgrep -f sdrplay_apiService >/dev/null 2>&1; then
             echo "Sending SIGHUP to service..."
             pkill -HUP -f sdrplay_apiService 2>/dev/null || true
             sleep 3
@@ -64,8 +71,8 @@ case "$(uname -s)" in
             fi
         fi
 
-        # If SIGHUP didn't work, do full restart
-        echo "Full restart required..."
+        # Full restart (either --force or SIGHUP failed)
+        echo "Full restart..."
 
         # First try graceful unload
         launchctl bootout system/com.sdrplay.service 2>/dev/null || \

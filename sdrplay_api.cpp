@@ -85,10 +85,56 @@ void resetServiceHealthTracking()
     g_apiOpenFailed = false;
 }
 
+// Try to restart the SDRplay service
+// Returns true if restart was attempted (success not guaranteed)
+static bool tryRestartService()
+{
+    ::SoapySDR_log(SOAPY_SDR_WARNING, "Attempting to restart SDRplay service...");
+
+    // Use --force for full restart (SIGHUP won't help if service is hung)
+    // Try without sudo first, then with sudo
+    int result = std::system("sdrplay-service-restart --force 2>/dev/null");
+    if (result != 0) {
+        result = std::system("sudo -n sdrplay-service-restart --force 2>/dev/null");
+    }
+
+    if (result == 0) {
+        ::SoapySDR_log(SOAPY_SDR_INFO, "SDRplay service restart requested");
+        // Wait for service to restart
+        std::this_thread::sleep_for(std::chrono::seconds(3));
+        resetServiceHealthTracking();
+        return true;
+    }
+
+    ::SoapySDR_log(SOAPY_SDR_ERROR, "Failed to restart SDRplay service");
+    return false;
+}
+
+// Ensure the SDRplay service is responsive before making API calls
+// If unresponsive, attempts to restart the service
+// Throws runtime_error if service cannot be recovered
+void ensureServiceResponsive()
+{
+    if (isServiceResponsive()) {
+        return;  // Service is healthy
+    }
+
+    ::SoapySDR_log(SOAPY_SDR_WARNING,
+        "SDRplay service is unresponsive - attempting recovery before API call");
+
+    if (!tryRestartService()) {
+        throw std::runtime_error(
+            "SDRplay service is unresponsive and could not be restarted. "
+            "Try: sudo sdrplay-service-restart");
+    }
+
+    // Give the service a moment to stabilize
+    std::this_thread::sleep_for(std::chrono::milliseconds(500));
+}
+
 // Singleton class for SDRplay API (only one per process)
 SoapySDRPlay::sdrplay_api::sdrplay_api()
 {
-
     // If we already failed to open, don't try again
     if (g_apiOpenFailed) {
         throw std::runtime_error("SDRplay API previously failed to open - restart application to retry");

@@ -37,14 +37,12 @@
 
 // Call sdrplay_api_Init with timeout protection
 // Returns the result if completed in time, or sdrplay_api_Fail on timeout
+// NOTE: The API lock is NOT required for Init - lock is only for device enumeration/selection
 static sdrplay_api_ErrT initWithTimeout(HANDLE dev, sdrplay_api_CallbackFnsT *cbFns, void *cbContext, unsigned int timeoutMs)
 {
     auto initFuture = std::make_shared<std::future<sdrplay_api_ErrT>>(
         std::async(std::launch::async, [dev, cbFns, cbContext]() {
-            sdrplay_api_LockDeviceApi();
-            sdrplay_api_ErrT result = sdrplay_api_Init(dev, cbFns, cbContext);
-            sdrplay_api_UnlockDeviceApi();
-            return result;
+            return sdrplay_api_Init(dev, cbFns, cbContext);
         })
     );
 
@@ -68,16 +66,12 @@ static sdrplay_api_ErrT initWithTimeout(HANDLE dev, sdrplay_api_CallbackFnsT *cb
 
 // Call sdrplay_api_Uninit with timeout protection
 // Returns the result if completed in time, or sdrplay_api_Fail on timeout
+// NOTE: The API lock is NOT required for Uninit - lock is only for device enumeration/selection
 static sdrplay_api_ErrT uninitWithTimeout(HANDLE dev, unsigned int timeoutMs)
 {
-    // We need to acquire the lock in the async thread to avoid thread-safety issues
-    // with the thread-local lock depth counter
     auto uninitFuture = std::make_shared<std::future<sdrplay_api_ErrT>>(
         std::async(std::launch::async, [dev]() {
-            sdrplay_api_LockDeviceApi();
-            sdrplay_api_ErrT result = sdrplay_api_Uninit(dev);
-            sdrplay_api_UnlockDeviceApi();
-            return result;
+            return sdrplay_api_Uninit(dev);
         })
     );
 
@@ -337,7 +331,6 @@ void SoapySDRPlay::ev_callback(sdrplay_api_EventT eventId, sdrplay_api_TunerSele
         sdrplay_api_PowerOverloadCbEventIdT powerOverloadChangeType = params->powerOverloadParams.powerOverloadChangeType;
         if (powerOverloadChangeType == sdrplay_api_Overload_Detected)
         {
-            SdrplayApiLockGuard apiLock(SDRPLAY_API_TIMEOUT_MS);
             sdrplay_api_ErrT err = sdrplay_api_Update(device.dev, device.tuner, sdrplay_api_Update_Ctrl_OverloadMsgAck, sdrplay_api_Update_Ext1_None);
             if (err != sdrplay_api_Success)
             {
@@ -347,7 +340,6 @@ void SoapySDRPlay::ev_callback(sdrplay_api_EventT eventId, sdrplay_api_TunerSele
         }
         else if (powerOverloadChangeType == sdrplay_api_Overload_Corrected)
         {
-            SdrplayApiLockGuard apiLock(SDRPLAY_API_TIMEOUT_MS);
             sdrplay_api_ErrT err = sdrplay_api_Update(device.dev, device.tuner, sdrplay_api_Update_Ctrl_OverloadMsgAck, sdrplay_api_Update_Ext1_None);
             if (err != sdrplay_api_Success)
             {

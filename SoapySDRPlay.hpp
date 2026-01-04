@@ -54,6 +54,7 @@ void recordApiSuccess();
 bool isServiceResponsive();
 int getConsecutiveTimeouts();
 void resetServiceHealthTracking();
+void ensureServiceResponsive();  // Throws if service unresponsive and can't be restarted
 
 // RAII guard for SDRplay API lock to prevent lock leaks on exceptions
 // Supports optional timeout to prevent indefinite hangs
@@ -171,7 +172,7 @@ struct WatchdogConfig {
     int maxRecoveryAttempts = 3;       // Per session
     int recoveryBackoffMs = 1000;      // Initial backoff between attempts
     bool autoRecover = true;           // Automatic vs manual recovery
-    bool restartServiceOnFailure = false;  // Try to restart SDRplay service
+    bool restartServiceOnFailure = true;   // Try to restart SDRplay service
     bool usbResetOnFailure = false;        // Try USB power cycle (requires uhubctl)
 };
 
