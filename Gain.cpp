@@ -25,6 +25,102 @@
  */
 
 #include "SoapySDRPlay.hpp"
+#include <vector>
+
+/*******************************************************************
+ * LNA Gain Reduction Tables (from gr-osmosdr/SDRplay documentation)
+ *
+ * These tables contain the cumulative gain reduction (in dB) for each
+ * LNA state at different frequency bands. The values are device-specific
+ * and frequency-dependent.
+ *
+ * Format: rfGRs[lna_state] = total gain reduction in dB
+ ******************************************************************/
+
+// Get LNA gain reduction values for the current device and frequency
+static std::vector<int> getLnaGainReductions(unsigned char hwVer, double rfHz, const std::string& antenna = "")
+{
+    if (hwVer == SDRPLAY_RSP1_ID)
+    {
+        if (rfHz <= 420e6)
+            return { 0, 24, 19, 43 };
+        else if (rfHz <= 1000e6)
+            return { 0, 7, 19, 26 };
+        else // <= 2000e6
+            return { 0, 5, 19, 24 };
+    }
+    else if (hwVer == SDRPLAY_RSP1A_ID || hwVer == SDRPLAY_RSP1B_ID)
+    {
+        if (rfHz <= 60e6)
+            return { 0, 6, 12, 18, 37, 42, 61 };
+        else if (rfHz <= 420e6)
+            return { 0, 6, 12, 18, 20, 26, 32, 38, 57, 62 };
+        else if (rfHz <= 1000e6)
+            return { 0, 7, 13, 19, 20, 27, 33, 39, 45, 64 };
+        else // <= 2000e6
+            return { 0, 6, 12, 20, 26, 32, 38, 43, 62 };
+    }
+    else if (hwVer == SDRPLAY_RSP2_ID)
+    {
+        if (rfHz <= 60e6 && antenna == "Hi-Z")
+            return { 0, 6, 12, 18, 37 };
+        else if (rfHz <= 420e6)
+            return { 0, 10, 15, 21, 24, 34, 39, 45, 64 };
+        else if (rfHz <= 1000e6)
+            return { 0, 7, 10, 17, 22, 41 };
+        else // <= 2000e6
+            return { 0, 5, 21, 15, 15, 34 };
+    }
+    else if (hwVer == SDRPLAY_RSPduo_ID)
+    {
+        if (rfHz <= 60e6 && antenna == "Tuner 1 Hi-Z")
+            return { 0, 6, 12, 18, 37 };
+        else if (rfHz <= 60e6)
+            return { 0, 6, 12, 18, 37, 42, 61 };
+        else if (rfHz <= 420e6)
+            return { 0, 6, 12, 18, 20, 26, 32, 38, 57, 62 };
+        else if (rfHz <= 1000e6)
+            return { 0, 7, 13, 19, 20, 27, 33, 39, 45, 64 };
+        else // <= 2000e6
+            return { 0, 6, 12, 20, 26, 32, 38, 43, 62 };
+    }
+    else if (hwVer == SDRPLAY_RSPdx_ID || hwVer == SDRPLAY_RSPdxR2_ID)
+    {
+        if (rfHz <= 2e6)  // HDR mode
+            return { 0, 3, 6, 9, 12, 15, 18, 21, 24, 25, 27, 30, 33, 36, 39, 42, 45, 48, 51, 54, 57, 60 };
+        else if (rfHz <= 12e6)
+            return { 0, 3, 6, 9, 12, 15, 24, 27, 30, 33, 36, 39, 42, 45, 48, 51, 54, 57, 60 };
+        else if (rfHz <= 60e6)
+            return { 0, 3, 6, 9, 12, 15, 18, 24, 27, 30, 33, 36, 39, 42, 45, 48, 51, 54, 57, 60 };
+        else if (rfHz <= 250e6)
+            return { 0, 3, 6, 9, 12, 15, 24, 27, 30, 33, 36, 39, 42, 45, 48, 51, 54, 57, 60, 63, 66, 69, 72, 75, 78, 81, 84 };
+        else if (rfHz <= 420e6)
+            return { 0, 3, 6, 9, 12, 15, 18, 24, 27, 30, 33, 36, 39, 42, 45, 48, 51, 54, 57, 60, 63, 66, 69, 72, 75, 78, 81, 84 };
+        else if (rfHz <= 1000e6)
+            return { 0, 7, 10, 13, 16, 19, 22, 25, 31, 34, 37, 40, 43, 46, 49, 52, 55, 58, 61, 64, 67 };
+        else // <= 2000e6
+            return { 0, 5, 8, 11, 14, 17, 20, 32, 35, 38, 41, 44, 47, 50, 53, 56, 59, 62, 65 };
+    }
+
+    // Default fallback
+    return { 0 };
+}
+
+// Get the maximum LNA state for the current device and frequency
+static int getMaxLnaState(unsigned char hwVer, double rfHz, const std::string& antenna = "")
+{
+    auto reductions = getLnaGainReductions(hwVer, rfHz, antenna);
+    return static_cast<int>(reductions.size()) - 1;
+}
+
+// Get the total gain reduction in dB for a given LNA state
+static int getLnaGainReduction(unsigned char hwVer, double rfHz, int lnaState, const std::string& antenna = "")
+{
+    auto reductions = getLnaGainReductions(hwVer, rfHz, antenna);
+    if (lnaState < 0 || lnaState >= static_cast<int>(reductions.size()))
+        return reductions.back();  // Return max reduction if out of range
+    return reductions[lnaState];
+}
 
 /*******************************************************************
  * Frontend corrections API
@@ -186,35 +282,14 @@ SoapySDR::Range SoapySDRPlay::getGainRange(const int direction, const size_t cha
    {
       return SoapySDR::Range(20, 59);
    }
-   else if ((name == "RFGR") && (device.hwVer == SDRPLAY_RSP1_ID))
+   else if (name == "RFGR")
    {
-      return SoapySDR::Range(0, 3);
+      // Use frequency-dependent max LNA state
+      double rfHz = chParams->tunerParams.rfFreq.rfHz;
+      int maxState = getMaxLnaState(device.hwVer, rfHz);
+      return SoapySDR::Range(0, maxState);
    }
-   else if ((name == "RFGR") && (device.hwVer == SDRPLAY_RSP2_ID))
-   {
-      return SoapySDR::Range(0, 8);
-   }
-   else if ((name == "RFGR") && (device.hwVer == SDRPLAY_RSPduo_ID))
-   {
-      return SoapySDR::Range(0, 9);
-   }
-   else if ((name == "RFGR") && (device.hwVer == SDRPLAY_RSP1A_ID))
-   {
-      return SoapySDR::Range(0, 9);
-   }
-   else if ((name == "RFGR") && (device.hwVer == SDRPLAY_RSP1B_ID))
-   {
-      return SoapySDR::Range(0, 9);
-   }
-   else if ((name == "RFGR") && (device.hwVer == SDRPLAY_RSPdx_ID))
-   {
-      return SoapySDR::Range(0, 27);
-   }
-   else if ((name == "RFGR") && (device.hwVer == SDRPLAY_RSPdxR2_ID))
-   {
-      return SoapySDR::Range(0, 27);
-   }
-    return SoapySDR::Range(20, 59);
+   return SoapySDR::Range(20, 59);
 }
 
 /*******************************************************************
@@ -225,61 +300,71 @@ void SoapySDRPlay::setGain(const int direction, const size_t channel, const doub
 {
     std::lock_guard<std::mutex> lock(_general_state_mutex);
 
-    // Map total gain (0-66 dB) to LNAstate and IFGR
-    // Strategy: Maximize LNA gain first (lower LNAstate = less attenuation = more gain)
-    // Then adjust IFGR for fine tuning
+    // Map total gain to LNAstate and IFGR using proper gain tables
+    // Strategy: Find the LNA state that gives closest gain, then fine-tune with IFGR
     //
-    // For RSPdx/RSPdx-R2:
-    //   - LNAstate 0 = minimum attenuation = maximum RF gain (~27 dB)
-    //   - LNAstate 27 = maximum attenuation = minimum RF gain (~0 dB)
-    //   - IFGR 20 = minimum reduction = maximum IF gain (~39 dB)
-    //   - IFGR 59 = maximum reduction = minimum IF gain (~0 dB)
-    //
-    // Total gain range: 0-66 dB (27 dB from LNA + 39 dB from IF)
+    // LNAstate 0 = minimum attenuation = maximum RF gain
+    // Higher LNAstate = more attenuation = less RF gain
+    // IFGR 20 = minimum reduction = maximum IF gain (~39 dB)
+    // IFGR 59 = maximum reduction = minimum IF gain (~0 dB)
 
-    int lna_state, if_gr;
+    double rfHz = chParams->tunerParams.rfFreq.rfHz;
+    auto lnaReductions = getLnaGainReductions(device.hwVer, rfHz);
+    int maxLnaState = static_cast<int>(lnaReductions.size()) - 1;
 
-    // Get max LNA states for this device
-    int max_lna_state = 27;  // Default for RSPdx
-    if (device.hwVer == SDRPLAY_RSP1_ID) max_lna_state = 3;
-    else if (device.hwVer == SDRPLAY_RSP2_ID) max_lna_state = 8;
-    else if (device.hwVer == SDRPLAY_RSPduo_ID) max_lna_state = 9;
-    else if (device.hwVer == SDRPLAY_RSP1A_ID) max_lna_state = 9;
-    else if (device.hwVer == SDRPLAY_RSP1B_ID) max_lna_state = 9;
+    // Max possible gain: LNA at state 0 (0 dB reduction) + IFGR at 20 (39 dB gain)
+    // The LNA reduction values are cumulative, so max LNA gain = maxReduction - 0 = maxReduction
+    int maxLnaReduction = lnaReductions.back();
+    double maxGain = static_cast<double>(maxLnaReduction) + 39.0;  // Max LNA gain + max IF gain
 
-    // Calculate LNA gain equivalent (approximate dB per state)
-    double lna_db_per_state = 27.0 / max_lna_state;
+    // Clamp requested gain to valid range
+    double targetGain = std::max(0.0, std::min(maxGain, value));
 
-    if (value >= 47) {
-        // High gain: Max LNA, adjust IFGR
-        lna_state = 0;  // Max LNA gain
-        if_gr = 20 + static_cast<int>(66 - value);  // Scale IFGR: value=66->IFGR=20, value=47->IFGR=39
-    } else if (value >= 20) {
-        // Medium gain: Reduce LNA, IFGR at minimum reduction
-        lna_state = static_cast<int>((47 - value) / lna_db_per_state);
-        if_gr = 20;  // Max IF gain (min reduction)
-    } else {
-        // Low gain: Min LNA, increase IFGR
-        lna_state = max_lna_state;
-        if_gr = 20 + static_cast<int>(20 - value);
+    // Find the best LNA state by finding the reduction value closest to what we need
+    // We want: lnaGain + ifGain = targetGain
+    // lnaGain = maxLnaReduction - lnaReductions[state]
+    // ifGain = 59 - if_gr (range 0-39 dB)
+    int bestLnaState = 0;
+    int bestIfGr = 20;
+    double bestError = maxGain;
+
+    for (int state = 0; state <= maxLnaState; state++)
+    {
+        double lnaGain = static_cast<double>(maxLnaReduction - lnaReductions[state]);
+        double neededIfGain = targetGain - lnaGain;
+
+        // IF gain range is 0-39 dB (IFGR 59-20)
+        if (neededIfGain < 0) neededIfGain = 0;
+        if (neededIfGain > 39) neededIfGain = 39;
+
+        int ifGr = 59 - static_cast<int>(neededIfGain);
+        double actualIfGain = 59.0 - ifGr;
+        double actualGain = lnaGain + actualIfGain;
+        double error = std::abs(actualGain - targetGain);
+
+        if (error < bestError)
+        {
+            bestError = error;
+            bestLnaState = state;
+            bestIfGr = ifGr;
+        }
     }
-
-    // Clamp values to valid ranges
-    lna_state = std::max(0, std::min(max_lna_state, lna_state));
-    if_gr = std::max(20, std::min(59, if_gr));
 
     // Update tracked values
-    desired_lna_state = lna_state;
-    desired_if_gr = if_gr;
+    desired_lna_state = bestLnaState;
+    desired_if_gr = bestIfGr;
 
     // Apply to device
-    chParams->tunerParams.gain.LNAstate = lna_state;
+    chParams->tunerParams.gain.LNAstate = bestLnaState;
     if (chParams->ctrlParams.agc.enable == sdrplay_api_AGC_DISABLE) {
-        chParams->tunerParams.gain.gRdB = if_gr;
+        chParams->tunerParams.gain.gRdB = bestIfGr;
     }
 
-    SoapySDR_logf(SOAPY_SDR_DEBUG, "setGain(%.1f dB) -> LNAstate=%d, gRdB=%d (AGC=%s)",
-                  value, lna_state, if_gr,
+    double actualLnaGain = static_cast<double>(maxLnaReduction - lnaReductions[bestLnaState]);
+    double actualIfGain = 59.0 - bestIfGr;
+    SoapySDR_logf(SOAPY_SDR_DEBUG, "setGain(%.1f dB) -> LNAstate=%d (%.1f dB), gRdB=%d (%.1f dB), total=%.1f dB (AGC=%s)",
+                  value, bestLnaState, actualLnaGain, bestIfGr, actualIfGain,
+                  actualLnaGain + actualIfGain,
                   (chParams->ctrlParams.agc.enable != sdrplay_api_AGC_DISABLE) ? "on" : "off");
 
     if (streamActive) {
@@ -292,29 +377,33 @@ double SoapySDRPlay::getGain(const int direction, const size_t channel) const
 {
     std::lock_guard<std::mutex> lock(_general_state_mutex);
 
-    // Calculate approximate total gain from LNAstate and gRdB
-    int lna_state = chParams->tunerParams.gain.LNAstate;
-    int if_gr = chParams->tunerParams.gain.gRdB;
+    // Calculate total gain from LNAstate and gRdB using proper gain tables
+    int lnaState = chParams->tunerParams.gain.LNAstate;
+    int ifGr = chParams->tunerParams.gain.gRdB;
+    double rfHz = chParams->tunerParams.rfFreq.rfHz;
 
-    // Get max LNA states for this device
-    int max_lna_state = 27;  // Default for RSPdx
-    if (device.hwVer == SDRPLAY_RSP1_ID) max_lna_state = 3;
-    else if (device.hwVer == SDRPLAY_RSP2_ID) max_lna_state = 8;
-    else if (device.hwVer == SDRPLAY_RSPduo_ID) max_lna_state = 9;
-    else if (device.hwVer == SDRPLAY_RSP1A_ID) max_lna_state = 9;
-    else if (device.hwVer == SDRPLAY_RSP1B_ID) max_lna_state = 9;
+    auto lnaReductions = getLnaGainReductions(device.hwVer, rfHz);
+    int maxLnaReduction = lnaReductions.back();
 
-    // Approximate: LNAstate 0 = ~27 dB, LNAstate max = ~0 dB
-    double lna_gain = 27.0 * (max_lna_state - lna_state) / max_lna_state;
-    // IFGR 20 = ~39 dB, IFGR 59 = ~0 dB
-    double if_gain = 39.0 * (59 - if_gr) / 39.0;
+    // LNA gain = max reduction - current reduction
+    int lnaReduction = getLnaGainReduction(device.hwVer, rfHz, lnaState);
+    double lnaGain = static_cast<double>(maxLnaReduction - lnaReduction);
 
-    return lna_gain + if_gain;
+    // IF gain = 59 - gRdB (range 0-39 dB)
+    double ifGain = 59.0 - ifGr;
+    if (ifGain < 0) ifGain = 0;
+    if (ifGain > 39) ifGain = 39;
+
+    return lnaGain + ifGain;
 }
 
 SoapySDR::Range SoapySDRPlay::getGainRange(const int direction, const size_t channel) const
 {
-    // Total gain range: 0 to 66 dB (approximately)
-    // This combines LNA gain (~27 dB for RSPdx) + IF gain (~39 dB)
-    return SoapySDR::Range(0, 66);
+    // Total gain range depends on device and frequency
+    // Max gain = max LNA gain (from tables) + max IF gain (39 dB)
+    double rfHz = chParams->tunerParams.rfFreq.rfHz;
+    auto lnaReductions = getLnaGainReductions(device.hwVer, rfHz);
+    int maxLnaReduction = lnaReductions.back();
+    double maxGain = static_cast<double>(maxLnaReduction) + 39.0;
+    return SoapySDR::Range(0, maxGain);
 }
