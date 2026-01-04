@@ -180,6 +180,25 @@ void SoapySDRPlay::rx_callback(short *xi, short *xq,
     // Track callback activity for stale callback detection
     stream->lastCallbackTicks.fetch_add(1, std::memory_order_relaxed);
 
+    // Sample gap detection - check if samples are continuous
+    if (stream->nextSampleNum != 0 && params->firstSampleNum != stream->nextSampleNum)
+    {
+        unsigned int gap;
+        if (params->firstSampleNum > stream->nextSampleNum)
+        {
+            gap = params->firstSampleNum - stream->nextSampleNum;
+        }
+        else
+        {
+            // Handle wraparound (unsigned overflow)
+            gap = UINT_MAX - (stream->nextSampleNum - params->firstSampleNum) + 1;
+        }
+        stream->sampleGapCount.fetch_add(1, std::memory_order_relaxed);
+        SoapySDR_logf(SOAPY_SDR_WARNING, "Sample gap detected: %u samples missing [expected %u, got %u]",
+                      gap, stream->nextSampleNum, params->firstSampleNum);
+    }
+    stream->nextSampleNum = params->firstSampleNum + numSamples;
+
     bool notify = false;
     if (gr_changed == 0 && params->grChanged != 0)
     {
@@ -923,6 +942,7 @@ int SoapySDRPlay::acquireReadBuffer(SoapySDR::Stream *stream,
             for (auto &buff : sdrplay_stream->floatBuffs) buff.clear();
         }
         sdrplay_stream->overflowEvent = false;
+        sdrplay_stream->nextSampleNum = 0;  // Reset sample tracking after drain
         if (sdrplay_stream->reset)
         {
            sdrplay_stream->reset = false;

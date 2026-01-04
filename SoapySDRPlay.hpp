@@ -624,6 +624,10 @@ public:
         // Callback activity tracking - detects if callbacks stop firing
         std::atomic<uint64_t> lastCallbackTicks{0};
 
+        // Sample gap detection - tracks expected next sample number
+        unsigned int nextSampleNum{0};
+        std::atomic<uint64_t> sampleGapCount{0};  // Total gaps detected
+
         // Watchdog tracking
         uint64_t lastWatchdogTicks{0};
         std::chrono::steady_clock::time_point lastCallbackTime;
