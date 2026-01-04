@@ -50,14 +50,50 @@ Streaming callbacks now track `firstSampleNum` to detect when samples are droppe
 
 All blocking SDRplay API calls are wrapped with timeout protection to prevent indefinite hangs when the service becomes unresponsive. Includes automatic service health tracking and recovery attempts.
 
+### Thread Safety Fixes
+
+This fork includes fixes for numerous race conditions and thread safety issues:
+
+* **Use-after-free bugs**: Fixed in `closeStream()` and stream teardown paths
+* **Deadlock prevention**: Avoided callback deadlocks, proper mutex ordering
+* **Race conditions**: Fixed rx callback teardown race, device enumeration cache races
+* **RAII guards**: Exception-safe device cleanup and API lock management
+* **Proper synchronization**: Condition variables instead of busy-wait, mutex protection for shared state
+
+### Streaming Performance
+
+Hot-path optimizations for high sample rate streaming:
+
+* **Bitwise AND** instead of modulo for ring buffer index calculations
+* **Cached buffer threshold** to avoid division in rx_callback
+* **Cached sample rate lists** to avoid allocations during queries
+* **Optimized float conversion** using multiplication instead of division
+* **Condition variables** instead of blocking sleep in `readStream()`
+
+### Error Handling & Robustness
+
+Comprehensive defensive programming throughout:
+
+* **Null pointer guards** in rx_callback, readSetting(), buffer API functions
+* **Bounds validation** for buffer handles and decimation factors
+* **Error checking** on all `sdrplay_api_Update()` calls (gain, AGC, frequency, bandwidth, antenna, bias-T, notch filters, HDR mode)
+* **RAII guards** for exception-safe resource cleanup
+* **Graceful device removal** handling with proper error propagation
+
+### RSPduo Improvements
+
+* **Gain preservation** after tuner swap (fixes gain loss bug)
+* **Parameter save/restore** when switching tuners while not streaming
+* **Mode-specific pseudo-devices** (ST/DT/MA/MA8/SL) for cleaner device selection
+* **Master/slave coordination** with proper error handling when master stops
+
 ### Additional Enhancements
 
 * **Hardware support**: RSP1B, RSPdx-R2, HDR mode with bandwidth controls
 * **Device discovery**: Serial/mode filters, claimed-device enumeration for multi-client SoapyRemote
-* **RSPduo**: Mode-specific device selection (ST/DT/MA/MA8/SL pseudo-devices), tuner switching safeguards, master/slave coordination
-* **Streaming stability**: Safer teardown, deadlock/race fixes, ring buffer hot-path optimizations
 * **Antenna persistence**: Per-device antenna settings stored under config dir
 * **Build options**: USB bulk mode, serial-in-log, release optimizations, uninstall target
+* **Code quality**: Modular source file organization, C++ modernization (nullptr, static_cast, std::string)
 
 ## Testing
 
